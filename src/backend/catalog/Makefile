@@ -48,6 +48,11 @@ OBJS = \
 	storage.o \
 	toasting.o
 
+# ifeq ($(enable_sealdb_v1), yes)
+OBJS += seal_example.o \
+	# seal_package.o
+# endif
+
 include $(top_srcdir)/src/backend/common.mk
 
 # Note: the order of this list determines the order in which the catalog
@@ -74,6 +79,12 @@ CATALOG_HEADERS := \
 	pg_sequence.h pg_publication.h pg_publication_namespace.h \
 	pg_publication_rel.h pg_subscription.h pg_subscription_rel.h
 
+# ifeq ($(enable_sealdb_v1), yes)
+CATALOG_HEADERS += \
+	seal_example.h \
+	# seal_package.h
+# endif
+
 GENERATED_HEADERS := $(CATALOG_HEADERS:%.h=%_d.h) schemapg.h system_fk_info.h
 
 POSTGRES_BKI_SRCS := $(addprefix $(top_srcdir)/src/include/catalog/, $(CATALOG_HEADERS))
@@ -88,6 +99,13 @@ POSTGRES_BKI_DATA = $(addprefix $(top_srcdir)/src/include/catalog/,\
 	pg_ts_config.dat pg_ts_config_map.dat pg_ts_dict.dat pg_ts_parser.dat \
 	pg_ts_template.dat pg_type.dat \
 	)
+
+# ifeq ($(enable_sealdb_v1), yes)
+POSTGRES_BKI_DATA += $(addprefix $(top_srcdir)/src/include/catalog/,\
+	seal_example.dat \
+)
+# endif
+
 
 all: distprep generated-header-symlinks
 

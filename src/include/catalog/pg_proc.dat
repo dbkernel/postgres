@@ -11812,4 +11812,11 @@
   prorettype => 'bytea', proargtypes => 'pg_brin_minmax_multi_summary',
   prosrc => 'brin_minmax_multi_summary_send' },
 
+# seal_example_test
+{ oid => '8130', descr => 'seal example test',
+  proname => 'seal_example_test', prorows => '1', proretset => 't',
+  provolatile => 'v', prorettype => 'record', proargtypes => '',
+  proallargtypes => '{int8,int8}', proargmodes => '{o,o}',
+  proargnames => '{case_num_current,case_num_next}',
+  prosrc => 'seal_example_test' },
 ]
