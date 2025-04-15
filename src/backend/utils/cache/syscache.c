@@ -778,7 +778,7 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		8
 	},
-// #ifdef ENABLE_SEALDB_V1
+#ifdef SEALDB_V1
 	{SealExampleRelationId,		/* SEALEXAMPLEOID */
 		SealExampleNumberIndexId,
 		1,
@@ -790,7 +790,7 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		16
 	},
-// #endif
+#endif
 	{SequenceRelationId,		/* SEQRELID */
 		SequenceRelidIndexId,
 		1,

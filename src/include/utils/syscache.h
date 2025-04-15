@@ -90,7 +90,7 @@ enum SysCacheIdentifier
 	REPLORIGIDENT,
 	REPLORIGNAME,
 	RULERELNAME,
-// #ifdef ENABLE_SEALDB_V1
+// #ifdef SEALDB_V1
 	SEALEXAMPLEOID,
 // #endif
 	SEQRELID,

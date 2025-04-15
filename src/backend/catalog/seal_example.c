@@ -319,7 +319,7 @@ pg_proc.dat 文件中需要添加如下内容：
   proargnames => '{case_num_current,case_num_next}',
   prosrc => 'seal_example_test' },
 
-当宏 ENABLE_SEALDB_V1 未启用时，seal_example.c不会被编译，那么，为了避免导致 pg_proc.dat
+当宏 SEALDB_V1 未启用时，seal_example.c不会被编译，那么，为了避免导致 pg_proc.dat
 中的 he3_example_test 函数无效的问题，可将本函数定义放置在其他文件中。
  */
 Datum
@@ -337,7 +337,7 @@ seal_example_test(PG_FUNCTION_ARGS)
 	values[1] = Int64GetDatum((case_num == case_max) ? 0 : case_num + 1);
 
 	tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc, values, nulls);
-// #ifdef ENABLE_SEALDB_V1
+// #ifdef SEALDB_V1
     switch (case_num) {
         case 0:
             InsertSealExampleTuple(100, "Wang");
