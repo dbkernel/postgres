@@ -1,0 +1,19 @@
+#----------------------------------------------------------------------
+#
+# seal_example.dat
+#    Initial contents of the seal_example system catalog.
+#
+# src/include/catalog/seal_example.dat
+#
+#----------------------------------------------------------------------
+
+[
+
+# Note: only bootstrap catalogs, ie those marked BKI_BOOTSTRAP, need to
+# have entries here.  Be sure that the OIDs listed here match those given in
+# their CATALOG and BKI_ROWTYPE_OID macros.
+
+{ oid => '8301', number => '1', tname => 'Allen' },
+{ oid => '8302', number => '2', tname => 'Jack' },
+
+]
