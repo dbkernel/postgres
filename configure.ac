@@ -809,6 +809,18 @@ AC_MSG_RESULT([$enable_thread_safety])
 AC_SUBST(enable_thread_safety)
 
 #
+# Enable SealDB V1 features
+#
+AC_MSG_CHECKING([allow sealdb-v1])
+PGAC_ARG_BOOL(enable, sealdb-v1, yes, [disable sealdb-v1])
+if test "$enable_sealdb_v1" = yes; then
+  AC_DEFINE([SEALDB_V1], 1,
+          [Define to 1 to build with sealdb-v1 support. (--enable-sealdb-v1)])
+fi
+AC_MSG_RESULT([$enable_sealdb_v1])
+AC_SUBST(enable_sealdb_v1)
+
+#
 # ICU
 #
 AC_MSG_CHECKING([whether to build with ICU support])

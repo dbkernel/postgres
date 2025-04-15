@@ -729,6 +729,7 @@ ICU_LIBS
 ICU_CFLAGS
 with_icu
 enable_thread_safety
+enable_sealdb_v1
 INCLUDES
 autodepend
 PKG_CONFIG_LIBDIR
@@ -852,6 +853,7 @@ with_llvm
 enable_depend
 enable_cassert
 enable_thread_safety
+enable_sealdb_v1
 with_icu
 with_tcl
 with_tclconfig
@@ -1542,6 +1544,7 @@ Optional Features:
   --enable-cassert        enable assertion checks (for debugging)
   --disable-thread-safety disable thread-safety in client libraries
   --disable-largefile     omit support for large files
+  --enable-sealdb-v1      enable SealDB V1 features
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -8128,6 +8131,44 @@ $as_echo "#define ENABLE_THREAD_SAFETY 1" >>confdefs.h
 fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_thread_safety" >&5
 $as_echo "$enable_thread_safety" >&6; }
+
+
+#
+# Enable SealDB V1 features
+#
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking allow sealdb-v1" >&5
+$as_echo_n "checking allow sealdb-v1... " >&6; }
+
+
+# Check whether --enable-sealdb-v1 was given.
+if test "${enable_sealdb_v1+set}" = set; then :
+  enableval=$enable_sealdb_v1;
+  case $enableval in
+    yes)
+      enable_sealdb_v1=yes
+      ;;
+    no)
+      enable_sealdb_v1=no
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --enable-sealdb-v1 option" "$LINENO" 5
+      ;;
+  esac
+
+else
+  enable_sealdb_v1=no
+
+fi
+
+
+if test "$enable_sealdb_v1" = yes; then
+
+$as_echo "#define SEALDB_V1 1" >>confdefs.h
+
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_sealdb_v1" >&5
+$as_echo "$enable_sealdb_v1" >&6; }
+
 
 
 #
