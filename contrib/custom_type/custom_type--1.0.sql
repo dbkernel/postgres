@@ -3,6 +3,18 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION custom_type" to load this file. \quit
 
+---------------- 创建文本与任意类型的互相转换函数 ----------------
+
+CREATE OR REPLACE FUNCTION text_to_type(text, anyelement)
+RETURNS anyelement
+AS 'custom_type', 'text_to_type'
+LANGUAGE C STRICT;
+
+CREATE OR REPLACE FUNCTION type_to_text(anyelement)
+RETURNS text
+AS 'custom_type', 'type_to_text'
+LANGUAGE C STRICT;
+
 ---------------- 创建自定义操作符 ----------------
 
 \echo Use "Create @@ Operator"
@@ -287,3 +299,23 @@ CREATE OPERATOR CLASS mytext_ops default FOR TYPE mytext USING btree AS
 -- DROP FUNCTION mytext_op_gt(mytext, mytext);
 -- DROP FUNCTION mytext_op_ge(mytext, mytext);
 -- DROP TYPE mytext;
+
+
+---------------- 创建自定义复合类型 composite、操作符及索引 ----------------
+
+CREATE FUNCTION composite_in(cstring)
+RETURNS composite
+AS 'custom_type', 'composite_in'
+LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION composite_out(composite)
+RETURNS cstring
+AS 'custom_type', 'composite_out'
+LANGUAGE C IMMUTABLE STRICT;
+
+CREATE TYPE composite (
+    INPUT = composite_in,
+    OUTPUT = composite_out,
+    INTERNALLENGTH = VARIABLE,
+    STORAGE = EXTENDED
+);
