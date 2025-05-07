@@ -394,6 +394,7 @@ composite_out(PG_FUNCTION_ARGS)
 #ifdef USE_LIBXML // 编译时需启用 --with-libxml（依赖 libxml 库）
     appendStringInfoChar(&str, '|');
 
+    // TODO: xml not work
     /* f6_xml */
     // if (comp->f6_xml)
     // {
@@ -505,6 +506,7 @@ composite_in(PG_FUNCTION_ARGS)
     memcpy(comp->f5_json, DatumGetPointer(jsonb_datum), VARSIZE(DatumGetPointer(jsonb_datum)));
 
 #ifdef USE_LIBXML // 编译时需启用 --with-libxml（依赖 libxml 库）
+    // TODO: xml not work
     /* f6_xml */
     if (strlen(fields[5]) > 0)
     {
@@ -534,8 +536,8 @@ composite_in(PG_FUNCTION_ARGS)
 #endif
 
     /* 清理临时字段数组 */
-    // for (i = 0; i < COMPOSITE_LENGTH; i++)
-    //     pfree(fields[i]);   // ==============================>>>>
+    for (i = 0; i < COMPOSITE_LENGTH; i++)
+        pfree(fields[i]); // 释放 fields[1] 时会报错 =======================================================
     pfree(fields);
 
     PG_RETURN_POINTER(comp);

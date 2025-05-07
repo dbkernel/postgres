@@ -6,7 +6,7 @@ OBJS = \
 	custom_type.o
 
 EXTENSION = custom_type
-DATA = custom_type--1.0.sql 
+DATA = custom_type--1.0.sql
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config
