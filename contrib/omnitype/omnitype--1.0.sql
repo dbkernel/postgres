@@ -1,18 +1,18 @@
-/* contrib/custom_type/custom_type--1.0.sql */
+/* contrib/omnitype/omnitype--1.0.sql */
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
-\echo Use "CREATE EXTENSION custom_type" to load this file. \quit
+\echo Use "CREATE EXTENSION omnitype" to load this file. \quit
 
 ---------------- 创建文本与任意类型的互相转换函数 ----------------
 
 CREATE OR REPLACE FUNCTION text_to_type(text, anyelement)
 RETURNS anyelement
-AS 'custom_type', 'text_to_type'
+AS 'omnitype', 'text_to_type'
 LANGUAGE C STRICT;
 
 CREATE OR REPLACE FUNCTION type_to_text(anyelement)
 RETURNS text
-AS 'custom_type', 'type_to_text'
+AS 'omnitype', 'type_to_text'
 LANGUAGE C STRICT;
 
 ---------------- 创建自定义操作符 ----------------
@@ -49,39 +49,39 @@ CREATE OPERATOR @@ (
 
 -- 注册 C 函数
 CREATE FUNCTION complex_in(cstring) RETURNS complex
-    AS 'custom_type', 'complex_in'
+    AS 'omnitype', 'complex_in'
     LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION complex_out(complex) RETURNS cstring
-    AS 'custom_type', 'complex_out'
+    AS 'omnitype', 'complex_out'
     LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION complex_add(complex, complex) RETURNS complex
-    AS 'custom_type', 'complex_add'
+    AS 'omnitype', 'complex_add'
     LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION complex_op_lt(complex, complex) RETURNS boolean
-    AS 'custom_type', 'complex_op_lt'
+    AS 'omnitype', 'complex_op_lt'
     LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION complex_op_le(complex, complex) RETURNS boolean
-    AS 'custom_type', 'complex_op_le'
+    AS 'omnitype', 'complex_op_le'
     LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION complex_op_ge(complex, complex) RETURNS boolean
-    AS 'custom_type', 'complex_op_ge'
+    AS 'omnitype', 'complex_op_ge'
     LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION complex_op_eq(complex, complex) RETURNS boolean
-    AS 'custom_type', 'complex_op_eq'
+    AS 'omnitype', 'complex_op_eq'
     LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION complex_op_gt(complex, complex) RETURNS boolean
-    AS 'custom_type', 'complex_op_gt'
+    AS 'omnitype', 'complex_op_gt'
     LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION complex_cmp(complex, complex) RETURNS integer
-    AS 'custom_type', 'complex_cmp'
+    AS 'omnitype', 'complex_cmp'
     LANGUAGE C IMMUTABLE STRICT;
 
 -- 定义类型 complex
@@ -181,11 +181,11 @@ CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
 \echo Use "Create Mytext Data Type"
 
 CREATE FUNCTION mytext_in(cstring) RETURNS mytext
-    AS 'custom_type', 'mytext_in'
+    AS 'omnitype', 'mytext_in'
     LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION mytext_out(mytext) RETURNS cstring
-    AS 'custom_type', 'mytext_out'
+    AS 'omnitype', 'mytext_out'
     LANGUAGE C IMMUTABLE STRICT;
 
 -- extended 支持 TOAST 存储可能导致失效, plain支持varchar, COLLATABLE = true 设置排序规则为默认排序规则
@@ -199,28 +199,28 @@ CREATE TYPE mytext (
 
 -- 注册 mytext_cmp 函数
 CREATE FUNCTION mytext_cmp(mytext, mytext) RETURNS integer
-    AS 'custom_type', 'mytext_cmp'
+    AS 'omnitype', 'mytext_cmp'
     LANGUAGE C STRICT;
 
 -- 注册操作符所用函数，返回值必须为 bool 类型
 CREATE FUNCTION mytext_op_le(mytext, mytext) RETURNS boolean
-    AS 'custom_type', 'mytext_op_le'
+    AS 'omnitype', 'mytext_op_le'
     LANGUAGE C STRICT;
  
 CREATE FUNCTION mytext_op_lt(mytext, mytext) RETURNS boolean
-    AS 'custom_type', 'mytext_op_lt'
+    AS 'omnitype', 'mytext_op_lt'
     LANGUAGE C STRICT;
 
 CREATE FUNCTION mytext_op_eq(mytext, mytext) RETURNS boolean
-    AS 'custom_type', 'mytext_op_eq'
+    AS 'omnitype', 'mytext_op_eq'
     LANGUAGE C STRICT;
 
 CREATE FUNCTION mytext_op_gt(mytext, mytext) RETURNS boolean
-    AS 'custom_type', 'mytext_op_gt'
+    AS 'omnitype', 'mytext_op_gt'
     LANGUAGE C STRICT;
 
 CREATE FUNCTION mytext_op_ge(mytext, mytext) RETURNS boolean
-    AS 'custom_type', 'mytext_op_ge'
+    AS 'omnitype', 'mytext_op_ge'
     LANGUAGE C STRICT;
 
 -- 创建操作符
@@ -305,12 +305,12 @@ CREATE OPERATOR CLASS mytext_ops default FOR TYPE mytext USING btree AS
 
 CREATE FUNCTION composite_in(cstring)
 RETURNS composite
-AS 'custom_type', 'composite_in'
+AS 'omnitype', 'composite_in'
 LANGUAGE C IMMUTABLE STRICT;
 
 CREATE FUNCTION composite_out(composite)
 RETURNS cstring
-AS 'custom_type', 'composite_out'
+AS 'omnitype', 'composite_out'
 LANGUAGE C IMMUTABLE STRICT;
 
 CREATE TYPE composite (
