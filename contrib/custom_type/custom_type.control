@@ -1,3 +1,0 @@
-comment = 'some custom data types and corresponding operator classes, operator families and indexes'
-default_version = '1.0'
-relocatable = true
