@@ -22,6 +22,22 @@
 
 PG_MODULE_MAGIC;
 
+void _PG_init(void);
+void _PG_init(void)
+{
+    MemoryContext oldctx = MemoryContextSwitchTo(TopMemoryContext);
+
+    // 注册类型和函数
+
+    MemoryContextSwitchTo(oldctx);
+}
+
+void _PG_fini(void);
+void
+_PG_fini(void)
+{
+}
+
 /*--------------------------------*
  *  文本转任意类型的通用转换函数  *
  *--------------------------------*/
@@ -325,18 +341,12 @@ Datum mytext_op_ge(PG_FUNCTION_ARGS) {
     PG_RETURN_BOOL(result);
 }
 
-void _PG_init(void)
-{
-    MemoryContext oldctx = MemoryContextSwitchTo(TopMemoryContext);
-    // 注册类型和函数
-    MemoryContextSwitchTo(oldctx);
-}
-
 /**********************************
  * composite data type
  **********************************/
 
 #define COMPOSITE_LENGTH 6 // Composite 结构的字段总数
+// #define COMPOSITE_DEEPCOPY 1 // 是否使用深拷贝
 
 /* 复合类型结构体定义 */
 typedef struct Composite
@@ -394,15 +404,14 @@ composite_out(PG_FUNCTION_ARGS)
 #ifdef USE_LIBXML // 编译时需启用 --with-libxml（依赖 libxml 库）
     appendStringInfoChar(&str, '|');
 
-    // TODO: xml not work
     /* f6_xml */
-    // if (comp->f6_xml)
-    // {
-    //     Datum xml_datum = DirectFunctionCall1(xml_out, PointerGetDatum(comp->f6_xml));
-    //     char *xml_str = DatumGetCString(xml_datum);
-    //     appendStringInfoString(&str, xml_str);
-    //     pfree(xml_str);
-    // }
+    if (comp->f6_xml)
+    {
+        Datum xml_datum = DirectFunctionCall1(xml_out, PointerGetDatum(comp->f6_xml));
+        char *xml_str = DatumGetCString(xml_datum);
+        appendStringInfoString(&str, xml_str);
+        pfree(xml_str);
+    }
 #endif
 
     PG_RETURN_CSTRING(str.data);
@@ -421,6 +430,9 @@ composite_in(PG_FUNCTION_ARGS)
     int         i = 0;
 
     /* 分割输入字符串 */
+    /* 注意：SplitIdentifierString 函数中，namelist 中各个元素的内容是通过 nextp 指针
+       直接在输入字符串 rawstring 上进行定位的，并没有使用动态内存分配函数来分配内存，
+       因此，后面无需使用深拷贝释放这部分内存（强行释放会导致crash）。 */
     if (!SplitIdentifierString(input_str, '|', &namelist))
         ereport(ERROR, (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
                         errmsg("invalid input syntax for composite type")));
@@ -429,9 +441,9 @@ composite_in(PG_FUNCTION_ARGS)
     nfields = list_length(namelist);
     if (nfields != COMPOSITE_LENGTH)
     {
-        list_free_deep(namelist);
+        list_free(namelist);
         ereport(ERROR, (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-                        errmsg("composite type requires exactly 7 fields")));
+                        errmsg("composite type requires exactly %d fields", COMPOSITE_LENGTH)));
     }
 
     /* 转换 List 到字符数组 */
@@ -453,11 +465,7 @@ composite_in(PG_FUNCTION_ARGS)
         i++;
     }
 
-#ifdef COMPOSITE_DEEPCOPY
-    list_free_deep(namelist); // 深拷贝方式的释放
-#else
     list_free(namelist); // 浅拷贝方式的释放
-#endif
 
     comp = (Composite *) palloc0(sizeof(Composite));
 
@@ -481,11 +489,17 @@ composite_in(PG_FUNCTION_ARGS)
     pfree(varchar);  // 释放临时对象
 
     /* f3_char(256) */
-    Datum bpchar_datum = DirectFunctionCall3(bpcharin,
-                                             CStringGetDatum(fields[2]),
-                                             ObjectIdGetDatum(InvalidOid),
-                                             Int32GetDatum(strlen(fields[2] + 1)));
+    Datum bpchar_datum = DirectFunctionCall3(
+        bpcharin, CStringGetDatum(fields[2]), ObjectIdGetDatum(InvalidOid),
+        Int32GetDatum(-1));  // 若 typmod 为 256，可能会输出很多空格，
+                             // 而 -1 表示 bpcharin 函数根据 strlen 计算。
     BpChar *bpchar = DatumGetBpCharPP(bpchar_datum);
+    if (VARSIZE_ANY_EXHDR(bpchar) > 256) // 长度校验
+    {
+        pfree(bpchar);
+        ereport(ERROR, (errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
+                        errmsg("value too long for bpchar(256)")));
+    }
     comp->f3_char = (BpChar *) palloc(VARSIZE(bpchar));
     memcpy(comp->f3_char, bpchar, VARSIZE(bpchar));
     pfree(bpchar);
@@ -506,28 +520,12 @@ composite_in(PG_FUNCTION_ARGS)
     memcpy(comp->f5_json, DatumGetPointer(jsonb_datum), VARSIZE(DatumGetPointer(jsonb_datum)));
 
 #ifdef USE_LIBXML // 编译时需启用 --with-libxml（依赖 libxml 库）
-    // TODO: xml not work
     /* f6_xml */
     if (strlen(fields[5]) > 0)
     {
-    // #if 0
-    //     Datum xml_datum = DirectFunctionCall1(xml_in, CStringGetDatum(fields[5]));
-    //     xmltype *xml_val = DatumGetXmlP(xml_datum);
-    //     comp->f6_xml = xmlCopy(xml_val);  // 假设存在深拷贝函数
-    // #else
-    //     /* 步骤1：将 XML 转换为字符串 */
-    //     Datum xml_datum = DirectFunctionCall1(xml_in, CStringGetDatum(fields[5]));
-    //     xmltype *xml_val = DatumGetXmlP(xml_datum);
-    //     char *xml_str = DatumGetCString(DirectFunctionCall1(xml_out, XmlPGetDatum(xml_val)));
-
-    //     /* 步骤2：重新解析字符串生成新对象 */
-    //     Datum new_xml_datum = DirectFunctionCall1(xml_in, CStringGetDatum(xml_str));
-    //     comp->f6_xml = DatumGetXmlP(new_xml_datum);
-
-    //     pfree(xml_str);
-    //     pfree(xml_val);
-    // #endif
-    // elog(INFO, "f6_xml: %s",  DatumGetXmlP(comp->f6_xml)); //  ==> DEBUG
+        Datum xml_datum = DirectFunctionCall1(xml_in, CStringGetDatum(fields[5]));
+        comp->f6_xml = (xmltype *) palloc(VARSIZE(DatumGetPointer(xml_datum)));
+        memcpy(comp->f6_xml, DatumGetPointer(xml_datum), VARSIZE(DatumGetPointer(xml_datum)));
     }
     else
     {
@@ -536,23 +534,14 @@ composite_in(PG_FUNCTION_ARGS)
 #endif
 
     /* 清理临时字段数组 */
+#ifdef COMPOSITE_DEEPCOPY
     for (i = 0; i < COMPOSITE_LENGTH; i++)
-        pfree(fields[i]); // 释放 fields[1] 时会报错 =======================================================
+    {
+        elog(INFO, "Freeing field %d: %s", i, fields[i]);
+        pfree(fields[i]);
+    }
+#endif
     pfree(fields);
 
     PG_RETURN_POINTER(comp);
-}
-
-void
-composite_free(Composite *comp)
-{
-    if (comp->f1_text) pfree(comp->f1_text);
-    if (comp->f2_varchar) pfree(comp->f2_varchar);
-    if (comp->f3_char) pfree(comp->f3_char);
-    if (comp->f4_bytea) pfree(comp->f4_bytea);
-    if (comp->f5_json) pfree(comp->f5_json);
-#ifdef USE_LIBXML // 编译时需启用 --with-libxml（依赖 libxml 库）
-    if (comp->f6_xml) pfree(comp->f6_xml);
-#endif
-    pfree(comp);
 }
