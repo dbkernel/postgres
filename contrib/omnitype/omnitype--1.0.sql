@@ -206,7 +206,7 @@ CREATE FUNCTION mytext_cmp(mytext, mytext) RETURNS integer
 CREATE FUNCTION mytext_op_le(mytext, mytext) RETURNS boolean
     AS 'omnitype', 'mytext_op_le'
     LANGUAGE C STRICT;
- 
+
 CREATE FUNCTION mytext_op_lt(mytext, mytext) RETURNS boolean
     AS 'omnitype', 'mytext_op_lt'
     LANGUAGE C STRICT;
@@ -319,3 +319,104 @@ CREATE TYPE composite (
     INTERNALLENGTH = VARIABLE,
     STORAGE = EXTENDED
 );
+
+-- 注册 mytext_cmp 函数
+CREATE FUNCTION composite_cmp(composite, composite) RETURNS integer
+    AS 'omnitype', 'composite_cmp'
+    LANGUAGE C STRICT;
+
+-- BTree 操作符寒素
+-- 小于 <
+CREATE OR REPLACE FUNCTION composite_lt(Composite, Composite)
+RETURNS boolean AS $$
+BEGIN
+    RETURN composite_cmp($1, $2) < 0;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE STRICT;
+
+-- 小于等于 <=
+CREATE OR REPLACE FUNCTION composite_le(Composite, Composite)
+RETURNS boolean AS $$
+BEGIN
+    RETURN composite_cmp($1, $2) <= 0;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE STRICT;
+
+-- 等于 =
+CREATE OR REPLACE FUNCTION composite_eq(Composite, Composite)
+RETURNS boolean AS $$
+BEGIN
+    RETURN composite_cmp($1, $2) = 0;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE STRICT;
+
+-- 大于等于 >=
+CREATE OR REPLACE FUNCTION composite_ge(Composite, Composite)
+RETURNS boolean AS $$
+BEGIN
+    RETURN composite_cmp($1, $2) >= 0;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE STRICT;
+
+-- 大于 >
+CREATE OR REPLACE FUNCTION composite_gt(Composite, Composite)
+RETURNS boolean AS $$
+BEGIN
+    RETURN composite_cmp($1, $2) > 0;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE STRICT;
+
+-- BTree 比较操作符
+-- 小于 <
+CREATE OPERATOR < (
+    leftarg = Composite,
+    rightarg = Composite,
+    procedure = composite_lt,
+    commutator = >,    -- 交换子：a < b ⇨ b > a
+    negator = >=        -- 否定子：!(a < b) ⇨ a >= b
+);
+
+-- 小于等于 <=
+CREATE OPERATOR <= (
+    leftarg = Composite,
+    rightarg = Composite,
+    procedure = composite_le,
+    commutator = >=,    -- 交换子：a <= b ⇨ b >= a
+    negator = >         -- 否定子：!(a <= b) ⇨ a > b
+);
+
+-- 等于 =
+CREATE OPERATOR = (
+    leftarg = Composite,
+    rightarg = Composite,
+    procedure = composite_eq,
+    commutator = =      -- 交换子：a = b ⇨ b = a
+);
+
+-- 大于等于 >=
+CREATE OPERATOR >= (
+    leftarg = Composite,
+    rightarg = Composite,
+    procedure = composite_ge,
+    commutator = <=,    -- 交换子：a >= b ⇨ b <= a
+    negator = <         -- 否定子：!(a >= b) ⇨ a < b
+);
+
+-- 大于 >
+CREATE OPERATOR > (
+    leftarg = Composite,
+    rightarg = Composite,
+    procedure = composite_gt,
+    commutator = <,     -- 交换子：a > b ⇨ b < a
+    negator = <=        -- 否定子：!(a > b) ⇨ a <= b
+);
+
+-- BTree 操作符类
+CREATE OPERATOR CLASS composite_btree_ops
+    DEFAULT FOR TYPE composite USING btree AS
+        OPERATOR 1 < ,
+        OPERATOR 2 <= ,
+        OPERATOR 3 = ,
+        OPERATOR 4 >= ,
+        OPERATOR 5 > ,
+        FUNCTION 1 composite_cmp(composite, composite);
