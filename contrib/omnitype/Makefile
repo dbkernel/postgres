@@ -3,7 +3,10 @@
 MODULE_big = omnitype
 OBJS = \
 	$(WIN32RES) \
-	omnitype.o
+	omnitype.o \
+	complex.o \
+	mytext.o \
+	text_to_all_types.o
 
 EXTENSION = omnitype
 DATA = omnitype--1.0.sql
