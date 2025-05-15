@@ -1,0 +1,5 @@
+comment = 'contains sample codes of many common functions, including UDF, SPI, Backgroud Worker, GUC, etc'
+default_version = '1.0'
+module_pathname = '$libdir/sandbox'
+relocatable = true
+superuser = false
