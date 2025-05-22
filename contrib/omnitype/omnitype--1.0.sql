@@ -3,6 +3,28 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION omnitype" to load this file. \quit
 
+-- ==================== 前置条件检查 ====================
+
+DO $$
+DECLARE
+    bloom_index_count INTEGER;
+BEGIN
+    -- 检查是否存在使用bloom访问方法的索引
+    SELECT COUNT(*) INTO bloom_index_count
+    FROM pg_extension WHERE extname = 'bloom';
+
+    -- 如果不存在Bloom索引，抛出错误并退出
+    IF bloom_index_count = 0 THEN
+        RAISE EXCEPTION 'bloom extension not exist, please CREATE EXTENSION bloom;';
+    END IF;
+
+    -- 继续执行插件初始化的其他逻辑
+    RAISE INFO 'bloom extension already exists, continue ...';
+
+    -- 其他初始化代码
+
+END $$;
+
 -- ==================== 创建文本与任意类型的互相转换函数 ====================
 
 CREATE OR REPLACE FUNCTION text_to_type(text, anyelement)
@@ -180,6 +202,8 @@ CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
 
 \echo Use "Create Mytext Data Type"
 
+-------------------- in/out 函数 --------------------
+
 CREATE FUNCTION mytext_in(cstring) RETURNS mytext
     AS 'omnitype', 'mytext_in'
     LANGUAGE C IMMUTABLE STRICT;
@@ -187,6 +211,8 @@ CREATE FUNCTION mytext_in(cstring) RETURNS mytext
 CREATE FUNCTION mytext_out(mytext) RETURNS cstring
     AS 'omnitype', 'mytext_out'
     LANGUAGE C IMMUTABLE STRICT;
+
+-------------------- 创建 mytext 类型 --------------------
 
 -- extended 支持 TOAST 存储可能导致失效, plain支持varchar, COLLATABLE = true 设置排序规则为默认排序规则
 CREATE TYPE mytext (
@@ -196,6 +222,8 @@ CREATE TYPE mytext (
     STORAGE = plain,
     COLLATABLE = true
 );
+
+-------------------- 注册 BTree 索引函数、操作符、操作符类 --------------------
 
 -- 注册 mytext_cmp 函数
 CREATE FUNCTION mytext_cmp(mytext, mytext) RETURNS integer
@@ -274,8 +302,8 @@ CREATE OPERATOR > (
     JOIN = scalargtjoinsel
 );
 
--- 创建操作符族
-CREATE OPERATOR CLASS mytext_ops default FOR TYPE mytext USING btree AS
+-- 创建操作符类
+CREATE OPERATOR CLASS mytext_btree_ops DEFAULT FOR TYPE mytext USING btree AS
     OPERATOR 1 < (mytext, mytext), -- 操作符与序号严格对应，比如 1 只能关联 < 操作符
     OPERATOR 2 <= (mytext, mytext), -- 定义操作符，其对应的函数返回值必须是 bool 类型
     OPERATOR 3 = (mytext, mytext),
@@ -300,6 +328,110 @@ CREATE OPERATOR CLASS mytext_ops default FOR TYPE mytext USING btree AS
 -- DROP FUNCTION mytext_op_ge(mytext, mytext);
 -- DROP TYPE mytext;
 
+-------------------- 注册 Hash 索引函数、操作符、操作符类 --------------------
+
+-- 使用单个哈希函数将键值映射到哈希表中，仅支持等值查询（=）
+
+-- 注册 hash 函数
+CREATE FUNCTION mytext_hash(mytext) RETURNS integer
+AS 'omnitype', 'mytext_hash'
+LANGUAGE C IMMUTABLE STRICT;
+
+-- 创建操作符类
+CREATE OPERATOR CLASS mytext_hash_ops
+    DEFAULT FOR TYPE mytext USING hash AS
+    OPERATOR 1 = (mytext, mytext),
+    FUNCTION 1 mytext_hash(mytext);
+
+-------------------- 注册 Bloom 索引函数、操作符、操作符类 --------------------
+
+-- 支持将键值映射到多个位（bit）位置，支持多键等值查询（如 WHERE a=? AND b=?）
+-- Bloom 索引的哈希函数是内置实现且对用户透明的，它们基于高效的通用哈希算法，无需用户干预。
+-- PostgreSQL 使用种子偏移技术生成多个哈希函数，而非独立实现多个函数：
+-- （1）基础哈希算法：通常使用 MurmurHash 或类似算法（具体实现可能因版本而异）
+-- （2）多函数生成：通过同一个基础哈希函数，配合不同的种子值（seed）生成多个哈希结果，以减少误判。哈希函数越多，误判率越低。
+-- （3）数学公式：hash_i(key) = base_hash(key, seed_i) ，其中 seed_i 是第 i 个哈希函数的种子值
+
+-- Bloom 索引的限制：
+-- 1. 该模块仅包含 int4 和 text 的操作符类。
+-- 2. 搜索仅支持 = 运算符。但是将来有可能添加对具有并集和交集操作的数组的支持。
+-- 3. bloom 访问方法不支持 UNIQUE 索引。
+-- 4. bloom 访问方法不支持搜索 NULL 值。
+
+-- 参考 contrib/bloom/bloom--1.0.sql
+CREATE OPERATOR CLASS mytext_bloom_ops
+    DEFAULT FOR TYPE mytext USING bloom AS
+    OPERATOR 1 = (mytext, mytext),  -- 等值操作符
+    FUNCTION 1 mytext_hash(mytext); -- 自定义哈希函数
+
+-------------------- 注册 BRIN 索引函数、操作符、操作符类 --------------------
+
+-- 创建 BRIN 索引所需函数
+
+-- 初始化
+CREATE FUNCTION mytext_brin_minmax_opcinfo(internal)
+RETURNS internal
+AS 'omnitype', 'mytext_brin_minmax_opcinfo'
+LANGUAGE C IMMUTABLE STRICT;
+
+-- 添加值到摘要
+CREATE FUNCTION mytext_brin_minmax_add_value(internal, internal, internal, internal)
+RETURNS boolean
+AS 'omnitype', 'mytext_brin_minmax_add_value'
+LANGUAGE C IMMUTABLE STRICT;
+
+-- 一致性检查
+CREATE FUNCTION mytext_brin_minmax_consistent(internal, internal, internal)
+RETURNS boolean
+AS 'omnitype', 'mytext_brin_minmax_consistent'
+LANGUAGE C IMMUTABLE STRICT;
+
+-- 合并多个数据块的摘要
+CREATE FUNCTION mytext_brin_minmax_union(internal, internal, internal)
+RETURNS boolean
+AS 'omnitype', 'mytext_brin_minmax_union'
+LANGUAGE C IMMUTABLE STRICT;
+
+-- 处理索引创建选项（可选）
+CREATE FUNCTION mytext_brin_minmax_options(internal)
+RETURNS void
+AS 'omnitype', 'mytext_brin_minmax_options'
+LANGUAGE C IMMUTABLE STRICT;
+
+-- 计算索引扫描的代价（TODO: Deep Seek 认为可选，我认为不支持）
+-- CREATE FUNCTION mytext_brin_minmax_penalty(internal, internal, internal)
+-- RETURNS float8
+-- AS 'omnitype', 'mytext_brin_minmax_penalty'
+-- LANGUAGE C IMMUTABLE STRICT;
+
+-- 创建 BRIN 操作符类
+CREATE OPERATOR CLASS mytext_brin_ops
+    DEFAULT FOR TYPE mytext USING brin AS
+    -- 声明比较操作符（策略编号1-5）
+    OPERATOR 1 < (mytext, mytext),    -- 策略1：小于
+    OPERATOR 2 <= (mytext, mytext),   -- 策略2：小于等于
+    OPERATOR 3 = (mytext, mytext),    -- 策略3：等于
+    OPERATOR 4 >= (mytext, mytext),   -- 策略4：大于等于
+    OPERATOR 5 > (mytext, mytext),    -- 策略5：大于
+    -- 声明支持函数（按编号1-6）
+    FUNCTION 1 mytext_brin_minmax_opcinfo(internal), -- 初始化
+    FUNCTION 2 mytext_brin_minmax_add_value(internal, internal, internal, internal), -- 添加值到摘要
+    FUNCTION 3 mytext_brin_minmax_consistent(internal, internal, internal), -- 一致性检查
+    FUNCTION 4 mytext_brin_minmax_union(internal, internal, internal); -- 合并多个数据块的摘要
+
+    -- FUNCTION 5 mytext_brin_minmax_options(internal); -- 处理索引创建选项（可选）
+
+    -- Deep Seek 认为BRIN索引操作符类支持指定代价估算函数，但在 pg_proc.dat 中并无示例：
+    -- Deep Seek 认为的示例：mytext_brin_minmax_penalty(internal, internal, internal), -- 计算索引扫描代价（可选）
+
+    -- BRIN 索引的 MinMax 操作符类、Bloom 操作符类，对应函数编号为 1-5, 11
+    -- 从 pg_proc.dat 中 BRIN 索引相关函数定义来看：
+    -- 1    brin_bloom_opcinfo
+    -- 2    brin_bloom_add_value
+    -- 3    brin_bloom_consistent
+    -- 4    brin_bloom_union
+    -- 5    brin_bloom_options
+    -- 11   hashvarlena
 
 -- ==================== 创建自定义复合类型 composite、操作符及索引 ====================
 
