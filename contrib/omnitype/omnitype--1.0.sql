@@ -3,7 +3,7 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION omnitype" to load this file. \quit
 
----------------- 创建文本与任意类型的互相转换函数 ----------------
+-- ==================== 创建文本与任意类型的互相转换函数 ====================
 
 CREATE OR REPLACE FUNCTION text_to_type(text, anyelement)
 RETURNS anyelement
@@ -15,7 +15,7 @@ RETURNS text
 AS 'omnitype', 'type_to_text'
 LANGUAGE C STRICT;
 
----------------- 创建自定义操作符 ----------------
+-- ==================== 创建自定义操作符 ====================
 
 \echo Use "Create @@ Operator"
 
@@ -43,7 +43,7 @@ CREATE OPERATOR @@ (
 -- DROP OPERATOR @@ (numeric, numeric);
 -- DROP FUNCTION abs_diff(numeric, numeric);
 
----------------- 创建自定义复数类型 complex、操作符及索引 ----------------
+-- ==================== 创建自定义复数类型 complex、操作符及索引 ====================
 
 \echo Use "Create Complex Data Type"
 
@@ -171,12 +171,12 @@ CREATE OPERATOR CLASS complex_ops FOR TYPE complex USING btree AS
 -- DROP FUNCTION complex_cmp(complex, complex);
 -- DROP TYPE complex;
 
----------------- 创建自定义枚举类型 mood ----------------
+-- ==================== 创建自定义枚举类型 mood ====================
 
 -- 枚举类型 mood
 CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
 
----------------- 创建自定义字符串类型 mytext、操作符及索引 ----------------
+-- ==================== 创建自定义字符串类型 mytext、操作符及索引 ====================
 
 \echo Use "Create Mytext Data Type"
 
@@ -301,7 +301,7 @@ CREATE OPERATOR CLASS mytext_ops default FOR TYPE mytext USING btree AS
 -- DROP TYPE mytext;
 
 
----------------- 创建自定义复合类型 composite、操作符及索引 ----------------
+-- ==================== 创建自定义复合类型 composite、操作符及索引 ====================
 
 CREATE FUNCTION composite_in(cstring)
 RETURNS composite
@@ -316,16 +316,22 @@ LANGUAGE C IMMUTABLE STRICT;
 CREATE TYPE composite (
     INPUT = composite_in,
     OUTPUT = composite_out,
-    INTERNALLENGTH = VARIABLE,
-    STORAGE = EXTENDED
+    INTERNALLENGTH = VARIABLE, -- 变长类型
+    STORAGE = EXTENDED,
+    COLLATABLE = true -- 声明支持排序规则
 );
 
--- 注册 mytext_cmp 函数
+-- 注册 composite_cmp 函数
 CREATE FUNCTION composite_cmp(composite, composite) RETURNS integer
     AS 'omnitype', 'composite_cmp'
     LANGUAGE C STRICT;
 
--- BTree 操作符寒素
+-- BTree 操作符函数
+
+-- 以下两种方法二选一：
+
+-- 方式一：基于 composite_cmp 函数
+
 -- 小于 <
 CREATE OR REPLACE FUNCTION composite_lt(Composite, Composite)
 RETURNS boolean AS $$
@@ -365,6 +371,33 @@ BEGIN
     RETURN composite_cmp($1, $2) > 0;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE STRICT;
+
+-- 方式二：基于同名C函数
+
+-- -- 小于 <
+-- CREATE FUNCTION composite_lt(composite, composite) RETURNS boolean
+--     AS 'omnitype', 'composite_lt'
+--     LANGUAGE C STRICT;
+
+-- -- 小于等于 <=
+-- CREATE FUNCTION composite_le(composite, composite) RETURNS boolean
+--     AS 'omnitype', 'composite_le'
+--     LANGUAGE C STRICT;
+
+-- -- 等于 =
+-- CREATE FUNCTION composite_eq(composite, composite) RETURNS boolean
+--     AS 'omnitype', 'composite_eq'
+--     LANGUAGE C STRICT;
+
+-- -- 大于等于 >=
+-- CREATE FUNCTION composite_ge(composite, composite) RETURNS boolean
+--     AS 'omnitype', 'composite_ge'
+--     LANGUAGE C STRICT;
+
+-- -- 大于 >
+-- CREATE FUNCTION composite_gt(composite, composite) RETURNS boolean
+--     AS 'omnitype', 'composite_gt'
+--     LANGUAGE C STRICT;
 
 -- BTree 比较操作符
 -- 小于 <
@@ -414,9 +447,9 @@ CREATE OPERATOR > (
 -- BTree 操作符类
 CREATE OPERATOR CLASS composite_btree_ops
     DEFAULT FOR TYPE composite USING btree AS
-        OPERATOR 1 < ,
-        OPERATOR 2 <= ,
-        OPERATOR 3 = ,
-        OPERATOR 4 >= ,
-        OPERATOR 5 > ,
+        OPERATOR 1 <  (composite, composite),
+        OPERATOR 2 <= (composite, composite),
+        OPERATOR 3 =  (composite, composite),
+        OPERATOR 4 >= (composite, composite),
+        OPERATOR 5 >  (composite, composite),
         FUNCTION 1 composite_cmp(composite, composite);
