@@ -1,3 +1,6 @@
+#include <libxml/parser.h>
+#include <libxml/c14n.h>
+
 #include "postgres.h"
 #include "fmgr.h"
 
@@ -128,153 +131,6 @@ bool field_is_null(char **fields, CompositeIndex pos)
     return false;
 }
 
-PG_FUNCTION_INFO_V1(composite_out);
-Datum
-composite_out(PG_FUNCTION_ARGS)
-{
-#ifdef PADDING_TO_ALIGN
-    struct varlena *mycomp = PG_DETOAST_DATUM_COPY(PG_GETARG_DATUM(0));
-#else
-    // Composite  *comp = (Composite *)PG_GETARG_POINTER(0); // 只获取指针，不做解压缩
-    struct varlena *mycomp = PG_GETARG_VARLENA_P(0); // 实际调用的是 PG_DETOAST_DATUM
-#endif
-    Composite  *comp = (Composite *)mycomp->vl_dat; // 也可以是 mycom + VARHDRSZ，以跳过 vl_len_
-    char *ptr = (char *) comp;
-
-#ifdef PADDING_TO_ALIGN
-    // ptr = (char *) MAXALIGN(ptr); // 跳过在 vl_len_ 后面填充的4个字节
-#endif
-
-    StringInfoData str;
-    initStringInfo(&str);
-
-    /* 解析非标量字段，即变长字段（顺序必须与 composite_in 完全一致，且不为空） */
-
-    text *f1_text = (text *)ptr; // 其中包含了 vl_len_
-    appendStringInfoString(&str, TextDatumGetCString(f1_text));
-    ptr += VARSIZE_ANY(f1_text);
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr); // 对齐到8字节(x64)
-#endif
-
-    VarChar *f2_varchar = (VarChar *)ptr;
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, TextDatumGetCString(f2_varchar));
-    ptr += VARSIZE_ANY(f2_varchar);
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr);
-#endif
-
-    BpChar *f3_char = (BpChar *)ptr;
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, TextDatumGetCString(f3_char));
-    ptr += VARSIZE_ANY(f3_char);
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr);
-#endif
-
-    bytea *f4_bytea = (bytea *)ptr;
-    Datum bytea_datum = DirectFunctionCall1(byteaout, PointerGetDatum(f4_bytea));
-    char *bytea_str = DatumGetCString(bytea_datum);
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, bytea_str);
-    pfree(bytea_str);
-    ptr += VARSIZE_ANY(f4_bytea);
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr);
-#endif
-
-    Jsonb *f5_json = (Jsonb *)ptr;
-    Datum jsonb_datum = DirectFunctionCall1(jsonb_out, PointerGetDatum(f5_json));
-    char *json_str = DatumGetCString(jsonb_datum);
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, json_str);
-    pfree(json_str);
-    ptr += VARSIZE_ANY(f5_json);
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr);
-#endif
-
-    xmltype *f6_xml = (xmltype *)ptr;
-    appendStringInfoChar(&str, '|');
-#ifdef USE_LIBXML // 编译时需启用 --with-libxml（依赖 libxml 库）
-    Datum xml_datum = DirectFunctionCall1(xml_out, PointerGetDatum(f6_xml));
-#else
-    Datum xml_datum = DirectFunctionCall1(varcharout, PointerGetDatum(f6_xml));
-#endif
-    char *xml_str = DatumGetCString(xml_datum);
-    appendStringInfoString(&str, xml_str);
-    pfree(xml_str);
-    ptr += VARSIZE_ANY(f6_xml);
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr);
-#endif
-
-    inet *f7_net = (inet *)ptr;
-    Datum net_datum = DirectFunctionCall1(inet_out, PointerGetDatum(f7_net));
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, DatumGetCString(net_datum));
-    pfree(DatumGetPointer(net_datum));
-    ptr += VARSIZE_ANY(f7_net);
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr);
-#endif
-
-    VarBit *f8_bit = (VarBit *)ptr;
-    Datum bit_datum = DirectFunctionCall1(bit_out, PointerGetDatum(f8_bit));
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, DatumGetCString(bit_datum));
-    pfree(DatumGetPointer(bit_datum));
-    ptr += VARSIZE_ANY(f8_bit);
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr);
-#endif
-
-    TSVector *f9_tsvec = (TSVector *)ptr;
-    Datum ts_datum = DirectFunctionCall1Coll(tsvectorout, PG_GET_COLLATION(), // 显式指定 collation
-                                             TSVectorGetDatum(f9_tsvec));
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, DatumGetCString(ts_datum));
-    pfree(DatumGetPointer(ts_datum));
-    ptr += VARSIZE_ANY(f9_tsvec);
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr);
-#endif
-
-    pg_uuid_t *f10_uuid = (pg_uuid_t *)ptr;
-    Datum uuid_datum = DirectFunctionCall1(uuid_out, PointerGetDatum(f10_uuid));
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, DatumGetCString(uuid_datum));
-    pfree(DatumGetPointer(uuid_datum));
-    ptr += UUID_LEN; // sizeof(*f10_uuid), 16 bytes
-#ifdef PADDING_TO_ALIGN
-    ptr = (char *)MAXALIGN(ptr); // 确保对齐，准备解析标量字段
-#endif
-
-    // 解析标量字段（确保对齐）
-    double f11_double = *((double *) ptr);
-    appendStringInfoChar(&str, '|');
-    appendStringInfo(&str, "%g", f11_double);
-    ptr += sizeof(double);
-
-    Timestamp f12_time = *((Timestamp *) ptr);
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, DatumGetCString(DirectFunctionCall1(timestamp_out, TimestampGetDatum(f12_time))));
-    ptr += sizeof(Timestamp);
-
-    DateADT f13_date = *((DateADT *) ptr);
-    appendStringInfoChar(&str, '|');
-    appendStringInfoString(&str, DatumGetCString(DirectFunctionCall1(date_out, DateADTGetDatum(f13_date))));
-    ptr += sizeof(DateADT);
-
-    int32 f14_int = *((int32 *) ptr);
-    appendStringInfoChar(&str, '|');
-    appendStringInfo(&str, "%d", f14_int); // 也可以调用 int4out（会调用 atoi）得到 Datum，并通过 DatumGetCString 转为字符串
-    ptr += sizeof(int32);
-
-    PG_RETURN_CSTRING(str.data);
-}
-
 PG_FUNCTION_INFO_V1(composite_in);
 Datum
 composite_in(PG_FUNCTION_ARGS)
@@ -333,11 +189,13 @@ composite_in(PG_FUNCTION_ARGS)
 #endif
 
     // 处理变长字段
+    elog(DEBUG1, "composite_in fields ...");
     for (i = 0; i < COM_LEN; i++) {
-        if (i >= COM_DOUBLE) break; // 标量字段之后处理
         // 如果打开这行elog代码且设置 set client_min_messages=INFO; 后，会在 client 端输出如下上下文信息：
         // LINE 1: SELECT 'text|varchar|char|\xDEADBEEF|{"key":123}|<xml>data</...
-        // elog(INFO, "Field %d: %s", i, fields[i]);
+        elog(DEBUG1, "field[%d]: %s", i, fields[i]);
+
+        if (i >= COM_DOUBLE) break; // 标量字段之后处理
         switch (i) {
             case COM_TEXT:
                 field_data[i].datum = DirectFunctionCall3(varcharin, CStringGetDatum(fields[i]),
@@ -512,6 +370,157 @@ composite_in(PG_FUNCTION_ARGS)
     PG_RETURN_POINTER(comp); // 默认，可能会使用 TOAST 压缩
 }
 
+PG_FUNCTION_INFO_V1(composite_out);
+Datum
+composite_out(PG_FUNCTION_ARGS)
+{
+#ifdef PADDING_TO_ALIGN
+    struct varlena *mycomp = PG_DETOAST_DATUM_COPY(PG_GETARG_DATUM(0));
+#else
+    // Composite  *comp = (Composite *)PG_GETARG_POINTER(0); // 只获取指针，不做解压缩
+    struct varlena *mycomp = PG_GETARG_VARLENA_P(0); // 实际调用的是 PG_DETOAST_DATUM
+#endif
+    Composite  *comp = (Composite *)mycomp->vl_dat; // 也可以是 mycom + VARHDRSZ，以跳过 vl_len_
+    char *ptr = (char *) comp;
+
+#ifdef PADDING_TO_ALIGN
+    // ptr = (char *) MAXALIGN(ptr); // 跳过在 vl_len_ 后面填充的4个字节
+#endif
+
+    StringInfoData str;
+    initStringInfo(&str);
+
+    /* 解析非标量字段，即变长字段（顺序必须与 composite_in 完全一致，且不为空） */
+
+    text *f1_text = (text *)ptr; // 其中包含了 vl_len_
+    appendStringInfoString(&str, TextDatumGetCString(f1_text));
+    ptr += VARSIZE_ANY(f1_text);
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr); // 对齐到8字节(x64)
+#endif
+
+    VarChar *f2_varchar = (VarChar *)ptr;
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, TextDatumGetCString(f2_varchar));
+    ptr += VARSIZE_ANY(f2_varchar);
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr);
+#endif
+
+    BpChar *f3_char = (BpChar *)ptr;
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, TextDatumGetCString(f3_char));
+    ptr += VARSIZE_ANY(f3_char);
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr);
+#endif
+
+    bytea *f4_bytea = (bytea *)ptr;
+    Datum bytea_datum = DirectFunctionCall1(byteaout, PointerGetDatum(f4_bytea));
+    char *bytea_str = DatumGetCString(bytea_datum);
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, bytea_str);
+    pfree(bytea_str);
+    ptr += VARSIZE_ANY(f4_bytea);
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr);
+#endif
+
+    Jsonb *f5_json = (Jsonb *)ptr;
+    Datum jsonb_datum = DirectFunctionCall1(jsonb_out, PointerGetDatum(f5_json));
+    char *json_str = DatumGetCString(jsonb_datum);
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, json_str);
+    pfree(json_str);
+    ptr += VARSIZE_ANY(f5_json);
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr);
+#endif
+
+    xmltype *f6_xml = (xmltype *)ptr;
+    appendStringInfoChar(&str, '|');
+#ifdef USE_LIBXML // 编译时需启用 --with-libxml（依赖 libxml 库）
+    Datum xml_datum = DirectFunctionCall1(xml_out, PointerGetDatum(f6_xml));
+#else
+    Datum xml_datum = DirectFunctionCall1(varcharout, PointerGetDatum(f6_xml));
+#endif
+    char *xml_str = DatumGetCString(xml_datum);
+    appendStringInfoString(&str, xml_str);
+    pfree(xml_str);
+    ptr += VARSIZE_ANY(f6_xml);
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr);
+#endif
+
+    inet *f7_net = (inet *)ptr;
+    Datum net_datum = DirectFunctionCall1(inet_out, PointerGetDatum(f7_net));
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, DatumGetCString(net_datum));
+    pfree(DatumGetPointer(net_datum));
+    ptr += VARSIZE_ANY(f7_net);
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr);
+#endif
+
+    VarBit *f8_bit = (VarBit *)ptr;
+    Datum bit_datum = DirectFunctionCall1(bit_out, PointerGetDatum(f8_bit));
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, DatumGetCString(bit_datum));
+    pfree(DatumGetPointer(bit_datum));
+    ptr += VARSIZE_ANY(f8_bit);
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr);
+#endif
+
+    TSVector *f9_tsvec = (TSVector *)ptr;
+    Datum ts_datum = DirectFunctionCall1Coll(tsvectorout, PG_GET_COLLATION(), // 显式指定 collation
+                                             TSVectorGetDatum(f9_tsvec));
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, DatumGetCString(ts_datum));
+    pfree(DatumGetPointer(ts_datum));
+    ptr += VARSIZE_ANY(f9_tsvec);
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr);
+#endif
+
+    pg_uuid_t *f10_uuid = (pg_uuid_t *)ptr;
+    Datum uuid_datum = DirectFunctionCall1(uuid_out, PointerGetDatum(f10_uuid));
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, DatumGetCString(uuid_datum));
+    pfree(DatumGetPointer(uuid_datum));
+    ptr += UUID_LEN; // sizeof(*f10_uuid), 16 bytes
+#ifdef PADDING_TO_ALIGN
+    ptr = (char *)MAXALIGN(ptr); // 确保对齐，准备解析标量字段
+#endif
+
+    // 解析标量字段（确保对齐）
+    double f11_double = *((double *) ptr);
+    appendStringInfoChar(&str, '|');
+    appendStringInfo(&str, "%g", f11_double);
+    ptr += sizeof(double);
+
+    Timestamp f12_time = *((Timestamp *) ptr);
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, DatumGetCString(DirectFunctionCall1(timestamp_out, TimestampGetDatum(f12_time))));
+    ptr += sizeof(Timestamp);
+
+    DateADT f13_date = *((DateADT *) ptr);
+    appendStringInfoChar(&str, '|');
+    appendStringInfoString(&str, DatumGetCString(DirectFunctionCall1(date_out, DateADTGetDatum(f13_date))));
+    ptr += sizeof(DateADT);
+
+    int32 f14_int = *((int32 *) ptr);
+    appendStringInfoChar(&str, '|');
+    appendStringInfo(&str, "%d", f14_int); // 也可以调用 int4out（会调用 atoi）得到 Datum，并通过 DatumGetCString 转为字符串
+    ptr += sizeof(int32);
+
+    PG_RETURN_CSTRING(str.data);
+}
+
+/* text_cmp()
+ * Internal comparison function for text strings.
+ * Returns -1, 0 or 1
+ */
 static int
 text_cmp(text *arg1, text *arg2, Oid collid)
 {
@@ -529,90 +538,313 @@ text_cmp(text *arg1, text *arg2, Oid collid)
 	return varstr_cmp(a1p, len1, a2p, len2, collid);
 }
 
-PG_FUNCTION_INFO_V1(composite_cmp);
-Datum composite_cmp(PG_FUNCTION_ARGS) {
-    Composite *a = (Composite *) PG_GETARG_POINTER(0);
-    Composite *b = (Composite *) PG_GETARG_POINTER(1);
-    int32 res;
-    Oid collation = PG_GET_COLLATION();
+static text *
+xml_canonicalize(text *xml_input)
+{
+    xmlDocPtr doc = NULL;
+    xmlChar *canonicalized = NULL;
+    int ret;
 
-    /* f1_text */
-    res = text_cmp(&a->f1_text, &b->f1_text, collation);
-    // res = DatumGetInt32(DirectFunctionCall2Coll(texteq, collation,
-    //                                             PointerGetDatum(a->f1_text),
-    //                                             PointerGetDatum(b->f1_text)));
-    if (res != 0) PG_RETURN_INT32(res);
+    // 解析 XML
+    doc = xmlParseMemory(VARDATA(xml_input), VARSIZE(xml_input) - VARHDRSZ);
+    if (!doc)
+        ereport(ERROR, (errcode(ERRCODE_INVALID_XML_DOCUMENT), errmsg("invalid XML document")));
 
-    /* f2_varchar */
-    res = varstr_cmp(
-        VARDATA_ANY(&a->f2_varchar), VARSIZE_ANY_EXHDR(&a->f2_varchar),
-        VARDATA_ANY(&b->f2_varchar), VARSIZE_ANY_EXHDR(&b->f2_varchar),
-        collation
+    // 规范化 XML（示例：排除注释，保留空白）
+    ret = xmlC14NDocDumpMemory(
+        doc,
+        NULL,  // 不排除任何命名空间
+        XML_C14N_1_0,
+        NULL,   // 不包含注释
+        1,      // 格式化输出（如缩进）
+        &canonicalized
     );
-    if (res != 0) PG_RETURN_INT32(res);
 
-    /* f3_char */
-    res = DatumGetInt32(DirectFunctionCall2Coll(bpcharcmp, collation,
-                                                PointerGetDatum(&a->f3_char),
-                                                PointerGetDatum(&b->f3_char)));
-    if (res != 0) PG_RETURN_INT32(res);
+    if (ret < 0 || !canonicalized)
+        ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), errmsg("XML canonicalization failed")));
 
-//     /* f4_bytea */
-//     res = DatumGetInt32(DirectFunctionCall2(
-//         byteacmp, PointerGetDatum(a->f4_bytea), PointerGetDatum(b->f4_bytea)));
-//     if (res != 0) PG_RETURN_INT32(res);
+    // 将规范化后的文本转为 text 类型
+    text *result = cstring_to_text_with_len((char *)canonicalized, strlen((char *)canonicalized));
 
-//     /* f5_json */
-//     res = DatumGetInt32(DirectFunctionCall2(
-//         jsonb_cmp, PointerGetDatum(a->f5_json), PointerGetDatum(b->f5_json)));
-//     if (res != 0) PG_RETURN_INT32(res);
+    // 清理内存
+    xmlFree(canonicalized);
+    xmlFreeDoc(doc);
 
-// #ifdef USE_LIBXML
-//     /* f6_xml */
-//     // TODO: 当前 xml 未参与比较，源码中不存在其比较函数，此处的 xml_cmp 函数仅为示例
-//     // res = xml_cmp(a->f6_xml， b->f6_xml);
-//     // if (res != 0) PG_RETURN_INT32(res);
-// #endif
+    return result;
+}
 
-//     /* f7_net */
-//     res = DatumGetInt32(DirectFunctionCall2(
-//         network_cmp, PointerGetDatum(a->f7_net), PointerGetDatum(b->f7_net)));
-//     if (res != 0) PG_RETURN_INT32(res);
+PG_FUNCTION_INFO_V1(composite_cmp);
+Datum
+composite_cmp(PG_FUNCTION_ARGS)
+{
+    /*
+     * 当执行带有比较操作符的 SQL 语句，比如 select * from t1 where c2 > 10;
+     * 那么，在调用比较函数时，比如 cmp(a, b)，那么从表里读取的数据为 a，而查询中附带的
+     * 值为 b，比如本例中的 10。
+     * gdb跟踪发现，与 composite_out 类似，其取到的值不是8字节对齐，而是错位4字节，
+     * 我分析原因是上层调用中取值时又做了一层变长封装，而变长头为 VARHDRSZ（4字节）。
+     *
+     * 同样，当执行 SELECT * FROM comp_test ORDER BY data; 时，在调用 cmp(a,b) 比较时，
+     * 表中的字段都可能为 a 或 b，具体来说：
+     * 1. 升序排列时，较小的值先作为 a，较大的值作为 b；
+     * 2. 降序排列时，较大的值先作为 a，较小的值作为 b。
+     */
+    // 通过拷贝方式强行8字节对齐，不能直接使用 PG_GETARG_VARLENA_PP(1);
+    Composite  *a = (Composite *) PG_DETOAST_DATUM_COPY(PG_GETARG_DATUM(0));
+    Composite  *b = (Composite *) PG_DETOAST_DATUM_COPY(PG_GETARG_DATUM(1));
+    char       *ptr_a = (char *) a + VARHDRSZ;
+    char       *ptr_b = (char *) b + VARHDRSZ;
+    int         cmp_result = 0;
 
-//     /* f8_bit */
-//     res = DatumGetInt32(DirectFunctionCall2(bitcmp, PointerGetDatum(a->f8_bit),
-//                                             PointerGetDatum(b->f8_bit)));
-//     if (res != 0) PG_RETURN_INT32(res);
+    /* 按字段顺序逐个比较 */
+    elog(DEBUG1, "composite_cmp fields ...");
+    for (CompositeIndex i = COM_TEXT; i < COM_LEN; i++)
+    {
+        if (i == COM_DOUBLE) // 在开始处理标量字段前，先对齐内存
+        {
+#ifdef PADDING_TO_ALIGN
+            ptr_a = (char *) MAXALIGN(ptr_a);
+            ptr_b = (char *) MAXALIGN(ptr_b);
+#endif
+        }
 
-//     /* f9_tsvec */
-//     res = DatumGetInt32(DirectFunctionCall2(tsvector_cmp,
-//                                             PointerGetDatum(a->f9_tsvec),
-//                                             PointerGetDatum(b->f9_tsvec)));
-//     if (res != 0) PG_RETURN_INT32(res);
+        switch (i)
+        {
+            /* --------------- 变长字段处理 --------------- */
+            // text、varchar、char 本质都是变长结构 struct varlena
+            case COM_TEXT:
+            case COM_VARCHAR:
+            case COM_CHAR:
+            {
+                text *ta = (text *) ptr_a;
+                text *tb = (text *) ptr_b;
+                // 无法使用 DirectFunctionCall2Coll 函数调用 text_cmp，因此，手动实现。
+                cmp_result = text_cmp(ta, tb, PG_GET_COLLATION());
+                ptr_a += VARSIZE_ANY(ta);
+                ptr_b += VARSIZE_ANY(tb);
+                elog(DEBUG1, "ta: %s, tb: %s",
+                     TextDatumGetCString(PointerGetDatum(ta)),
+                     TextDatumGetCString(PointerGetDatum(tb)));
+                break;
+            }
+            case COM_BYTEA:
+            {
+                bytea *ba = (bytea *) ptr_a;
+                bytea *bb = (bytea *) ptr_b;
+                cmp_result = DatumGetInt32(
+                    DirectFunctionCall2(byteacmp, PointerGetDatum(ba), PointerGetDatum(bb))
+                );
+                ptr_a += VARSIZE_ANY(ba);
+                ptr_b += VARSIZE_ANY(bb);
+                elog(DEBUG1, "ba: %s, bb: %s",
+                     DatumGetCString(DirectFunctionCall1(byteaout, PointerGetDatum(ba))),
+                     DatumGetCString(DirectFunctionCall1(byteaout, PointerGetDatum(bb))));
+                break;
+            }
+            case COM_JSON:
+            {
+                Jsonb *ja = (Jsonb *) ptr_a;
+                Jsonb *jb = (Jsonb *) ptr_b;
+                cmp_result = DatumGetInt32(
+                    DirectFunctionCall2(jsonb_cmp, PointerGetDatum(ja), PointerGetDatum(jb))
+                );
+                ptr_a += VARSIZE_ANY(ja);
+                ptr_b += VARSIZE_ANY(jb);
+                elog(DEBUG1, "ja: %s, jb: %s",
+                     DatumGetCString(DirectFunctionCall1(jsonb_out, PointerGetDatum(ja))),
+                     DatumGetCString(DirectFunctionCall1(jsonb_out, PointerGetDatum(jb))));
+                break;
+            }
+            case COM_XML:
+            {
+                text *xa = (text *) ptr_a;
+                text *xb = (text *) ptr_b;
+#ifdef USE_LIBXML
+                // 启用 LIBXML：规范化后比较
+                text *canon_a = xml_canonicalize(xa);
+                text *canon_b = xml_canonicalize(xb);
+                cmp_result = text_cmp(canon_a, canon_b, PG_GET_COLLATION());
+                pfree(canon_a);
+                pfree(canon_b);
+#else
+                // 未启用 LIBXML：直接比较原始文本
+                cmp_result = text_cmp(xa, xb, PG_GET_COLLATION());
+#endif
+                ptr_a += VARSIZE_ANY(ptr_a);
+                ptr_b += VARSIZE_ANY(ptr_b);
+                elog(DEBUG1, "xa: %s, xb: %s",
+                     TextDatumGetCString(PointerGetDatum(xa)),
+                     TextDatumGetCString(PointerGetDatum(xb)));
+                break;
+            }
+            case COM_INET:
+            {
+                inet *ia = (inet *) ptr_a;
+                inet *ib = (inet *) ptr_b;
+                cmp_result = DatumGetInt32(
+                    DirectFunctionCall2(network_cmp, PointerGetDatum(ia), PointerGetDatum(ib))
+                );
+                ptr_a += VARSIZE_ANY(ia);
+                ptr_b += VARSIZE_ANY(ib);
+                elog(DEBUG1, "ia: %s, ib: %s",
+                     DatumGetCString(DirectFunctionCall1(inet_out, PointerGetDatum(ia))),
+                     DatumGetCString(DirectFunctionCall1(inet_out, PointerGetDatum(ib))));
+                break;
+            }
+            case COM_BIT:
+            {
+                VarBit *ba = (VarBit *) ptr_a;
+                VarBit *bb = (VarBit *) ptr_b;
+                cmp_result = DatumGetInt32(
+                    DirectFunctionCall2(bitcmp, PointerGetDatum(ba), PointerGetDatum(bb))
+                );
+                ptr_a += VARSIZE_ANY(ba);
+                ptr_b += VARSIZE_ANY(bb);
+                elog(DEBUG1, "ba: %s, bb: %s",
+                     DatumGetCString(DirectFunctionCall1(bit_out, PointerGetDatum(ba))),
+                     DatumGetCString(DirectFunctionCall1(bit_out, PointerGetDatum(bb))));
+                break;
+            }
+            case COM_TSVECTOR:
+            {
+                TSVector *ta = (TSVector *) ptr_a;
+                TSVector *tb = (TSVector *) ptr_b;
+                cmp_result = DatumGetInt32(
+                    DirectFunctionCall2(tsvector_cmp, PointerGetDatum(ta), PointerGetDatum(tb))
+                );
+                ptr_a += VARSIZE_ANY(ta);
+                ptr_b += VARSIZE_ANY(tb);
+                elog(DEBUG1, "ta: %s, tb: %s",
+                     DatumGetCString(DirectFunctionCall1Coll(tsvectorout, PG_GET_COLLATION(), TSVectorGetDatum(ta))),
+                     DatumGetCString(DirectFunctionCall1Coll(tsvectorout, PG_GET_COLLATION(), TSVectorGetDatum(tb))));
+                break;
+            }
+            case COM_UUID:
+            {
+                pg_uuid_t *ua = (pg_uuid_t *) ptr_a;
+                pg_uuid_t *ub = (pg_uuid_t *) ptr_b;
+                cmp_result = DatumGetInt32(
+                    DirectFunctionCall2(uuid_cmp, PointerGetDatum(ua), PointerGetDatum(ub))
+                );
+                ptr_a += UUID_LEN;
+                ptr_b += UUID_LEN;
+                elog(DEBUG1, "ua: %s, ub: %s",
+                     DatumGetCString(DirectFunctionCall1(uuid_out, PointerGetDatum(ua))),
+                     DatumGetCString(DirectFunctionCall1(uuid_out, PointerGetDatum(ub))));
+                break;
+            }
 
-//     /* f10_uuid */
-//     res = DatumGetInt32(DirectFunctionCall2(
-//         uuid_cmp, PointerGetDatum(a->f10_uuid), PointerGetDatum(b->f10_uuid)));
-//     if (res != 0) PG_RETURN_INT32(res);
+            /* --------------- 标量字段处理 --------------- */
+            case COM_DOUBLE:
+            {
+                double da = *((double *) ptr_a);
+                double db = *((double *) ptr_b);
+                cmp_result = (da < db) ? -1 : (da > db) ? 1 : 0;
+                ptr_a += sizeof(double);
+                ptr_b += sizeof(double);
+                elog(DEBUG1, "da: %f, db: %f", da, db);
+                break;
+            }
+            case COM_TIME:
+            {
+                Timestamp ta = *((Timestamp *) ptr_a);
+                Timestamp tb = *((Timestamp *) ptr_b);
+                cmp_result = DatumGetInt32(
+                    DirectFunctionCall2(timestamp_cmp, TimestampGetDatum(ta), TimestampGetDatum(tb))
+                );
+                ptr_a += sizeof(Timestamp);
+                ptr_b += sizeof(Timestamp);
+                elog(DEBUG1, "ta: %s, tb: %s",
+                     DatumGetCString(DirectFunctionCall1(timestamp_out, TimestampGetDatum(ta))),
+                     DatumGetCString(DirectFunctionCall1(timestamp_out, TimestampGetDatum(tb))));
+                break;
+            }
+            case COM_DATE:
+            {
+                DateADT da = *((DateADT *) ptr_a);
+                DateADT db = *((DateADT *) ptr_b);
+                cmp_result = (da < db) ? -1 : (da > db) ? 1 : 0;
+                ptr_a += sizeof(DateADT);
+                ptr_b += sizeof(DateADT);
+                elog(DEBUG1, "da: %s, db: %s",
+                     DatumGetCString(DirectFunctionCall1(date_out, DateADTGetDatum(da))),
+                     DatumGetCString(DirectFunctionCall1(date_out, DateADTGetDatum(db))));
+                break;
+            }
+            case COM_INT:
+            {
+                int32 ia = *((int32 *) ptr_a);
+                int32 ib = *((int32 *) ptr_b);
+                cmp_result = (ia < ib) ? -1 : (ia > ib) ? 1 : 0;
+                ptr_a += sizeof(int32);
+                ptr_b += sizeof(int32);
+                elog(DEBUG1, "ia: %d, ib: %d", ia, ib);
+                break;
+            }
+            default:
+                elog(ERROR, "未处理的字段类型: %d", i);
+        }
 
-//     /* f11_double */
-//     res = float8_cmp_internal(a->f11_double, b->f11_double);
-//     if (res != 0) PG_RETURN_INT32(res);
+        /* 内存对齐（若启用） */
+#ifdef PADDING_TO_ALIGN
+        if (i < COM_DOUBLE) // 变长字段后对齐
+        {
+            ptr_a = (char *) MAXALIGN(ptr_a);
+            ptr_b = (char *) MAXALIGN(ptr_b);
+        }
+#endif
 
-//     /* f12_time */
-//     res = DatumGetInt32(DirectFunctionCall2(timestamp_cmp,
-//                                             TimestampGetDatum(a->f12_time),
-//                                             TimestampGetDatum(b->f12_time)));
-//     if (res != 0) PG_RETURN_INT32(res);
+        /* 如果当前字段比较结果非零，提前返回 */
+        if (cmp_result != 0)
+            break;
+    }
 
-//     /* f13_date */
-//     res = DatumGetInt32(DirectFunctionCall2(
-//         date_cmp, DateADTGetDatum(a->f13_date), DateADTGetDatum(b->f13_date)));
-//     if (res != 0) PG_RETURN_INT32(res);
+    PG_FREE_IF_COPY(a, 0);
+    PG_FREE_IF_COPY(b, 1);
+    PG_RETURN_INT32(cmp_result);
+}
 
-//     /* f14_int */
-//     res = int128_compare(a->f14_int, b->f14_int);
-//     if (res != 0) PG_RETURN_INT32(res);
+/* 等于 */
+PG_FUNCTION_INFO_V1(composite_eq);
+Datum
+composite_eq(PG_FUNCTION_ARGS)
+{
+    int cmp = DatumGetInt32(composite_cmp(fcinfo));
+    PG_RETURN_BOOL(cmp == 0);
+}
 
-    PG_RETURN_INT32(0);
+/* 小于 */
+PG_FUNCTION_INFO_V1(composite_lt);
+Datum
+composite_lt(PG_FUNCTION_ARGS)
+{
+    int cmp = DatumGetInt32(composite_cmp(fcinfo));
+    PG_RETURN_BOOL(cmp < 0);
+}
+
+/* 小于等于 */
+PG_FUNCTION_INFO_V1(composite_le);
+Datum
+composite_le(PG_FUNCTION_ARGS)
+{
+    int cmp = DatumGetInt32(composite_cmp(fcinfo));
+    PG_RETURN_BOOL(cmp <= 0);
+}
+
+/* 大于等于 */
+PG_FUNCTION_INFO_V1(composite_ge);
+Datum
+composite_ge(PG_FUNCTION_ARGS)
+{
+    int cmp = DatumGetInt32(composite_cmp(fcinfo));
+    PG_RETURN_BOOL(cmp >= 0);
+}
+
+/* 大于 */
+PG_FUNCTION_INFO_V1(composite_gt);
+Datum
+composite_gt(PG_FUNCTION_ARGS)
+{
+    int cmp = DatumGetInt32(composite_cmp(fcinfo));
+    PG_RETURN_BOOL(cmp > 0);
 }
