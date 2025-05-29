@@ -150,7 +150,8 @@ composite_in(PG_FUNCTION_ARGS)
           直接在输入字符串 rawstring 上进行定位的，并没有使用动态内存分配函数来分配内存，
           因此，后面无需使用深拷贝释放这部分内存（强行释放会导致crash）。
        2. 包含空格的子串必须以 "" 标注。该函数默认会将空格及其他空白字符视为分隔符的一部分，
-          这是因为该函数的设计初衷是解析 SQL 标识符，而 SQL 标识符通常不允许包含空格。 */
+          这是因为该函数的设计初衷是解析 SQL 标识符，而 SQL 标识符通常不允许包含空格。
+       3. 该函数主要用于分割 NameData 数据，因此，会将长字符串截断为 64 个字符。 */
     if (!SplitIdentifierString(input_str, '|', &namelist))
         ereport(ERROR, (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
                         errmsg("invalid input syntax for composite type")));

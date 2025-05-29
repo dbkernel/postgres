@@ -6,10 +6,11 @@ OBJS = \
 	omnitype.o \
 	complex.o \
 	mytext.o \
-	text_to_all_types.o
+	tinyint.o
 
 EXTENSION = omnitype
 DATA = omnitype--1.0.sql
+PG_CPPFLAGS = -std=c99 # PG 默认采用 C90 标准
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

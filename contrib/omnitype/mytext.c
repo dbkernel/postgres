@@ -1,3 +1,5 @@
+#include <math.h>
+
 #include "postgres.h"
 #include "fmgr.h"
 #include "utils/builtins.h"
@@ -7,6 +9,9 @@
 #include "access/brin_internal.h"
 #include "access/brin_tuple.h"
 #include "utils/acl.h"
+
+#define olog(level, message, ...) \
+    elog(level, "[%s]\t " message, __func__, ##__VA_ARGS__)
 
 /**********************************
  * mytext type
@@ -53,7 +58,11 @@ static int mytext_cmp_internal(mytext *src, mytext *dst, Oid collid) {
     int d_len = VARSIZE_ANY_EXHDR(dst);
     char *d_data = VARDATA_ANY(dst);
 
-    return varstr_cmp(s_data, s_len, d_data, d_len, collid);
+    int result = varstr_cmp(s_data, s_len, d_data, d_len, collid);
+    result = ((result > 0) ? 1 : ((result < 0) ? -1 : 0));
+    olog(DEBUG1, "src: %s, dst: %s, result: %d",
+         text_to_cstring(src), text_to_cstring(dst), result);
+    return result;
 }
 
 PG_FUNCTION_INFO_V1(mytext_cmp);
@@ -107,7 +116,7 @@ Datum mytext_hash(PG_FUNCTION_ARGS) {
     mytext *txt = PG_GETARG_VARLENA_PP(0); // 获取参数（自动处理 TOAST 压缩）
     Datum hash_datum = DirectFunctionCall1(hashvarlena, PointerGetDatum(txt));
     uint32 hash_value = DatumGetUInt32(hash_datum); // 提取哈希值（确保返回无符号整数）
-    elog(DEBUG1, "hash_value: %u", hash_value);
+    olog(DEBUG1, "hash_value: %u", hash_value);
     PG_RETURN_UINT32(hash_value); // 返回结果（无需手动释放内存）
     // PG_RETURN_UINT32(hash_value ^ 0xDEADBEEF);  // 简单修改哈希值
 }
@@ -164,9 +173,10 @@ PG_FUNCTION_INFO_V1(mytext_brin_minmax_add_value);
 Datum mytext_brin_minmax_add_value(PG_FUNCTION_ARGS) {
     BrinDesc *bdesc = (BrinDesc *)PG_GETARG_POINTER(0);
     BrinValues *column = (BrinValues *)PG_GETARG_POINTER(1);
-    Datum newval = PG_GETARG_DATUM(2);
+    mytext *newval = PG_DETOAST_DATUM_COPY(PG_GETARG_DATUM(2)); // 深拷贝当前值（非必须），TODO: 不一定需要 COPY
     bool isnull = PG_GETARG_BOOL(3);
     Oid collid = PG_GET_COLLATION();
+    bool updated = false;
 
     // 防御性检查
     if (column == NULL) {
@@ -175,42 +185,57 @@ Datum mytext_brin_minmax_add_value(PG_FUNCTION_ARGS) {
 
     // 首次添加值时初始化bv_values数组
     if (column->bv_values == NULL) {
-        column->bv_values = (Datum *)palloc(2 * sizeof(Datum));
-        // column->bv_attno = 2;
+        column->bv_values = (Datum *)palloc0(2 * sizeof(Datum));
+        column->bv_attno = 2;
         column->bv_hasnulls = true;  // 初始时认为有NULL值
+        column->bv_values[0] = (Datum)NULL; // 最小值设为NULL
+        column->bv_values[1] = (Datum)NULL; // 最大值设为NULL
     }
 
     if (!isnull) {
+        mytext *cur_val = newval;
+        Datum copied_datum = PointerGetDatum(cur_val);
         mytext *min_val = (mytext *)DatumGetPointer(column->bv_values[0]);
         mytext *max_val = (mytext *)DatumGetPointer(column->bv_values[1]);
 
         if (column->bv_hasnulls || (min_val == NULL && max_val == NULL)) {
-            elog(DEBUG1, "min_val and max_val are NULL, cur_val=%s",
-                 TextDatumGetCString((mytext *)DatumGetPointer(newval)));
+            olog(DEBUG1, "min_val and max_val are NULL, cur_val=%s",
+                 TextDatumGetCString(cur_val));
 
-            // 首次初始化摘要
-            column->bv_values[0] = newval;  // 最小值
-            column->bv_values[1] = newval;  // 最大值
+            // 首次初始化摘要，存储深拷贝后的值
+            column->bv_values[0] = copied_datum;  // 最小值
+            column->bv_values[1] = copied_datum;  // 最大值
             column->bv_hasnulls = false;
+            updated = true;
         } else {
-            mytext *cur_val = (mytext *)DatumGetPointer(newval);
-
-            elog(DEBUG1, "min_val=%s, max_val=%s, cur_val=%s",
+            olog(DEBUG1, "before update: min_val=%s, max_val=%s, cur_val=%s",
                  TextDatumGetCString(min_val), TextDatumGetCString(max_val),
                  TextDatumGetCString(cur_val));
 
             // 更新最小/最大值
-            if (mytext_cmp_internal(min_val, cur_val, collid) > 0)
-                column->bv_values[0] = newval;
-            if (mytext_cmp_internal(max_val, cur_val, collid) < 0)
-                column->bv_values[1] = newval;
+            if (mytext_cmp_internal(min_val, cur_val, collid) > 0) {
+                column->bv_values[0] = copied_datum;
+                updated = true;
+            }
+            if (mytext_cmp_internal(max_val, cur_val, collid) < 0) {
+                column->bv_values[1] = copied_datum;
+                updated = true;
+            }
+
+            olog(DEBUG1, "after update: bv_values[0]=%s, bv_values[1]=%s",
+                 TextDatumGetCString(column->bv_values[0]),
+                 TextDatumGetCString(column->bv_values[1]));
         }
     } else {
         // 处理NULL值
-        column->bv_hasnulls = true;
+        if (!column->bv_hasnulls) {
+            column->bv_hasnulls = true;
+            updated = true;
+            olog(DEBUG1, "mark the current data block as containing NULL values");
+        }
     }
 
-    PG_RETURN_BOOL(false); // 摘要未改变
+    PG_RETURN_BOOL(updated); // 返回摘要是否改变
 }
 
 // 执行一致性检查，判断数据块是否可能包含满足查询条件的记录
@@ -226,34 +251,75 @@ Datum mytext_brin_minmax_consistent(PG_FUNCTION_ARGS) {
     mytext *max_val = NULL;
 
     // 安全获取最小/最大值
-    if (column->bv_values[0] != NULL) {
-        min_val = (mytext *)DatumGetPointer(column->bv_values[0]);
+    if (!column->bv_hasnulls) {
+        if (column->bv_values[0] != NULL)
+            min_val = (mytext *)DatumGetPointer(column->bv_values[0]);
+        if (column->bv_values[1] != NULL)
+            max_val = (mytext *)DatumGetPointer(column->bv_values[1]);
     }
-    if (column->bv_values[1] != NULL) {
-        max_val = (mytext *)DatumGetPointer(column->bv_values[1]);
-    }
+
+    olog(DEBUG1, "consistent min_val: %s, max_val: %s",
+         text_to_cstring(min_val), text_to_cstring(max_val));
 
     // 检查是否有有效数据
     if (min_val && max_val && !column->bv_hasnulls) {
         Datum query = key->sk_argument;
-        mytext *query_val = (mytext *)DatumGetPointer(query);
+        // mytext *query_val = (mytext *)DatumGetPointer(query);
+        mytext *query_val = (mytext *)PG_DETOAST_DATUM(query);
 
+        // 这两种比较方式本质一样
+        // 方式一
+        // switch (key->sk_strategy) {
+        //     case BTLessStrategyNumber:         // <
+        //         result = (mytext_cmp_internal(query_val, max_val, collid) < 0);
+        //         break;
+        //     case BTLessEqualStrategyNumber:    // <=
+        //         result = (mytext_cmp_internal(query_val, max_val, collid) <= 0);
+        //         break;
+        //     case BTEqualStrategyNumber:        // =
+        //         result = (mytext_cmp_internal(query_val, max_val, collid) <= 0 &&
+        //                   mytext_cmp_internal(query_val, min_val, collid) >= 0);
+        //         break;
+        //     case BTGreaterEqualStrategyNumber: // >=
+        //         result = (mytext_cmp_internal(query_val, min_val, collid) >= 0);
+        //         break;
+        //     case BTGreaterStrategyNumber:      // >
+        //         result = (mytext_cmp_internal(query_val, min_val, collid) > 0);
+        //         break;
+        //     default:
+        //         result = false;
+        // }
+
+        // 方式二
         switch (key->sk_strategy) {
-            case BTLessStrategyNumber:         // <
-                result = (mytext_cmp_internal(query_val, max_val, collid) < 0);
+            case BTLessStrategyNumber: // <
+                result = (mytext_cmp_internal(min_val, query_val, collid) < 0);
                 break;
-            case BTLessEqualStrategyNumber:    // <=
-                result = (mytext_cmp_internal(query_val, max_val, collid) <= 0);
+            case BTLessEqualStrategyNumber: // <=
+                result = (mytext_cmp_internal(min_val, query_val, collid) <= 0);
                 break;
-            case BTEqualStrategyNumber:        // =
-                result = (mytext_cmp_internal(query_val, min_val, collid) >= 0 &&
-                          mytext_cmp_internal(query_val, max_val, collid) <= 0);
-                break;
-            case BTGreaterStrategyNumber:      // >
-                result = (mytext_cmp_internal(query_val, max_val, collid) > 0);
+            case BTEqualStrategyNumber: // =
+                result = (mytext_cmp_internal(min_val, query_val, collid) <= 0 &&
+                          mytext_cmp_internal(max_val, query_val, collid) >= 0);
                 break;
             case BTGreaterEqualStrategyNumber: // >=
-                result = (mytext_cmp_internal(query_val, min_val, collid) >= 0);
+                result = (mytext_cmp_internal(max_val, query_val, collid) >= 0);
+                break;
+            case BTGreaterStrategyNumber: // >
+                result = (mytext_cmp_internal(max_val, query_val, collid) > 0);
+                break;
+            default:
+                result = false;
+        }
+
+        olog(DEBUG1, "BRIN check: strategy=%d, query='%s', min='%s', max='%s', result=%d",
+             key->sk_strategy, text_to_cstring(query_val), text_to_cstring(min_val),
+             text_to_cstring(max_val), result);
+    } else if (column->bv_hasnulls) { // 如果有NULL值，根据操作符类型判断
+        switch (key->sk_strategy) {
+            case BTEqualStrategyNumber:
+                // 只有查询条件明确包含IS NULL时才返回true
+                result = false;
                 break;
             default:
                 result = false;
@@ -269,21 +335,39 @@ Datum mytext_brin_minmax_union(PG_FUNCTION_ARGS) {
     BrinValues *col_a = (BrinValues *)PG_GETARG_POINTER(1);
     BrinValues *col_b = (BrinValues *)PG_GETARG_POINTER(2);
     Oid collid = PG_GET_COLLATION();
+    bool updated = false;
 
+    // 合并最小/最大值
     if (!col_a->bv_hasnulls && !col_b->bv_hasnulls) {
-        // 合并最小/最大值
-        if (mytext_cmp_internal(col_a->bv_values[0], col_b->bv_values[0], collid) > 0)
+        // 确保值是可比较的
+        mytext *a_min = (mytext *)DatumGetPointer(col_a->bv_values[0]);
+        mytext *a_max = (mytext *)DatumGetPointer(col_a->bv_values[1]);
+        mytext *b_min = (mytext *)DatumGetPointer(col_b->bv_values[0]);
+        mytext *b_max = (mytext *)DatumGetPointer(col_b->bv_values[1]);
+
+        // 更新最小值
+        if (mytext_cmp_internal(a_min, b_min, collid) > 0) {
             col_a->bv_values[0] = col_b->bv_values[0];
-        if (mytext_cmp_internal(col_a->bv_values[1], col_b->bv_values[1], collid) < 0)
+            updated = true;
+        }
+
+        // 更新最大值
+        if (mytext_cmp_internal(a_max, b_max, collid) < 0) {
             col_a->bv_values[1] = col_b->bv_values[1];
+            updated = true;
+        }
     } else if (col_b->bv_hasnulls) {
-        col_a->bv_hasnulls = true;
+        if (!col_a->bv_hasnulls) {
+            col_a->bv_hasnulls = true;
+            updated = true;
+        }
     }
 
-    PG_RETURN_VOID();
+    PG_RETURN_BOOL(updated);
 }
 
-// 计算索引扫描的代价（ penalties ），用于查询优化器选择执行计划
+// 计算索引扫描的代价，用于查询优化器选择执行计划
+// TODO: Deep Seek 认为可选，从 pg_proc.dat 中定义来看，我认为不支持
 PG_FUNCTION_INFO_V1(mytext_brin_minmax_penalty);
 Datum mytext_brin_minmax_penalty(PG_FUNCTION_ARGS) {
     BrinValues *orig = (BrinValues *)PG_GETARG_POINTER(0);
