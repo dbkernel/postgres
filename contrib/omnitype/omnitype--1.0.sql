@@ -25,18 +25,6 @@ BEGIN
 
 END $$;
 
--- ==================== 创建文本与任意类型的互相转换函数 ====================
-
-CREATE OR REPLACE FUNCTION text_to_type(text, anyelement)
-RETURNS anyelement
-AS 'omnitype', 'text_to_type'
-LANGUAGE C STRICT;
-
-CREATE OR REPLACE FUNCTION type_to_text(anyelement)
-RETURNS text
-AS 'omnitype', 'type_to_text'
-LANGUAGE C STRICT;
-
 -- ==================== 创建自定义操作符 ====================
 
 \echo Use "Create @@ Operator"
@@ -64,6 +52,389 @@ CREATE OPERATOR @@ (
 -- 删除自定义操作符（在 DROP EXTENSION 时会自动删除，无法手动删除，此处仅做记录）
 -- DROP OPERATOR @@ (numeric, numeric);
 -- DROP FUNCTION abs_diff(numeric, numeric);
+
+-- ==================== 创建 tinyint（基于 int4、C 函数） ====================
+
+CREATE TYPE tinyint;
+
+-------------------- 创建基础函数 --------------------
+
+CREATE FUNCTION tinyint_in(cstring)
+    RETURNS tinyint
+    AS 'omnitype', 'tinyint_in'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_out(tinyint)
+    RETURNS cstring
+    AS 'omnitype', 'tinyint_out'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_recv(internal)
+    RETURNS tinyint
+    AS 'omnitype', 'tinyint_recv'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_send(tinyint)
+    RETURNS bytea
+    AS 'omnitype', 'tinyint_send'
+    LANGUAGE C IMMUTABLE STRICT;
+
+-------------------- 定义完整类型 --------------------
+
+CREATE TYPE tinyint (
+    internallength = 4,
+    input = tinyint_in,
+    output = tinyint_out,
+    receive = tinyint_recv,
+    send = tinyint_send,
+    alignment = int4,
+    storage = plain,
+    category = 'N',
+    like = int4
+);
+
+-------------------- tinyint 与 integer 的比较函数（正向）、操作符（正向） --------------------
+
+CREATE FUNCTION tinyint_lt_integer(tinyint, integer)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_lt_integer'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_le_integer(tinyint, integer)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_le_integer'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_eq_integer(tinyint, integer)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_eq_integer'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_ne_integer(tinyint, integer)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_ne_integer'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_ge_integer(tinyint, integer)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_ge_integer'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_gt_integer(tinyint, integer)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_gt_integer'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE OPERATOR < (
+    LEFTARG = tinyint,
+    -- RIGHTARG = tinyint, -- 适用于 c1 < '100'::tinyint
+    RIGHTARG = integer, -- 适用于 c1 < 100，因为 100 默认被解析成 integer
+    PROCEDURE = tinyint_lt_integer,
+    COMMUTATOR = >,
+    NEGATOR = >=
+);
+
+CREATE OPERATOR <= (
+    LEFTARG = tinyint,
+    -- RIGHTARG = tinyint, -- 适用于 c1 <= '100'::tinyint
+    RIGHTARG = integer, -- 适用于 c1 <= 100，因为 100 默认被解析成 integer
+    PROCEDURE = tinyint_le_integer,
+    COMMUTATOR = >=,
+    NEGATOR = >
+);
+
+CREATE OPERATOR = (
+    LEFTARG = tinyint,
+    -- RIGHTARG = tinyint, -- 适用于 c1 = '100'::tinyint
+    RIGHTARG = integer, -- 适用于 c1 = 100，因为 100 默认被解析成 integer
+    PROCEDURE = tinyint_eq_integer,
+    COMMUTATOR = =,
+    NEGATOR = <>,
+    HASHES,  -- 支持哈希索引
+    MERGES   -- 支持合并连接
+);
+
+CREATE OPERATOR <> (
+    LEFTARG = tinyint,
+    -- RIGHTARG = tinyint, -- 适用于 c1 <> '100'::tinyint
+    RIGHTARG = integer, -- 适用于 c1 <> 100，因为 100 默认被解析成 integer
+    PROCEDURE = tinyint_ne_integer,
+    COMMUTATOR = <>,
+    NEGATOR = =
+);
+
+CREATE OPERATOR >= (
+    LEFTARG = tinyint,
+    -- RIGHTARG = tinyint, -- 适用于 c1 >= '100'::tinyint
+    RIGHTARG = integer, -- 适用于 c1 >= 100，因为 100 默认被解析成 integer
+    PROCEDURE = tinyint_ge_integer,
+    COMMUTATOR = <=,
+    NEGATOR = <
+);
+
+CREATE OPERATOR > (
+    LEFTARG = tinyint,
+    -- RIGHTARG = tinyint, -- 适用于 c1 > '100'::tinyint
+    RIGHTARG = integer, -- 适用于 c1 > 100，因为 100 默认被解析成 integer
+    PROCEDURE = tinyint_gt_integer,
+    COMMUTATOR = <,
+    NEGATOR = <=
+);
+
+CREATE FUNCTION tinyint_cmp_integer(tinyint, integer)
+    RETURNS integer
+    AS 'omnitype', 'tinyint_cmp_integer'
+    LANGUAGE C IMMUTABLE STRICT;
+
+-------------------- integer 与 tinyint 的比较函数（反向）、操作符（反向） --------------------
+
+CREATE FUNCTION integer_lt_tinyint(integer, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'integer_lt_tinyint'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION integer_le_tinyint(integer, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'integer_le_tinyint'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION integer_eq_tinyint(integer, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'integer_eq_tinyint'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION integer_ne_tinyint(integer, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'integer_ne_tinyint'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION integer_ge_tinyint(integer, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'integer_ge_tinyint'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION integer_gt_tinyint(integer, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'integer_gt_tinyint'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE OPERATOR < (
+    LEFTARG = integer, -- 适用于 100 < c1，因为 100 默认被解析成 integer
+    RIGHTARG = tinyint,
+    PROCEDURE = integer_lt_tinyint,
+    COMMUTATOR = >,
+    NEGATOR = >=
+);
+
+CREATE OPERATOR <= (
+    LEFTARG = integer, -- 适用于 100 <= c1，因为 100 默认被解析成 integer
+    RIGHTARG = tinyint,
+    PROCEDURE = integer_le_tinyint,
+    COMMUTATOR = >=,
+    NEGATOR = >
+);
+
+CREATE OPERATOR = (
+    LEFTARG = integer, -- 适用于 100 = c1，因为 100 默认被解析成 integer
+    RIGHTARG = tinyint,
+    PROCEDURE = integer_eq_tinyint,
+    COMMUTATOR = =,
+    NEGATOR = <>,
+    HASHES,  -- 支持哈希索引
+    MERGES   -- 支持合并连接
+);
+
+CREATE OPERATOR <> (
+    LEFTARG = integer, -- 适用于 100 <> c1，因为 100 默认被解析成 integer
+    RIGHTARG = tinyint,
+    PROCEDURE = integer_ne_tinyint,
+    COMMUTATOR = <>,
+    NEGATOR = =
+);
+
+CREATE OPERATOR >= (
+    LEFTARG = integer, -- 适用于 100 >= c1，因为 100 默认被解析成 integer
+    RIGHTARG = tinyint,
+    PROCEDURE = integer_ge_tinyint,
+    COMMUTATOR = <=,
+    NEGATOR = <
+);
+
+CREATE OPERATOR > (
+    LEFTARG = integer, -- 适用于 100 > c1，因为 100 默认被解析成 integer
+    RIGHTARG = tinyint,
+    PROCEDURE = integer_gt_tinyint,
+    COMMUTATOR = <,
+    NEGATOR = <=
+);
+
+CREATE FUNCTION integer_cmp_tinyint(integer, tinyint)
+    RETURNS integer
+    AS 'omnitype', 'integer_cmp_tinyint'
+    LANGUAGE C IMMUTABLE STRICT;
+
+-------------------- tinyint 与 tinyint 的比较函数、操作符 --------------------
+
+CREATE FUNCTION tinyint_lt(tinyint, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_lt'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_le(tinyint, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_le'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_eq(tinyint, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_eq'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_ne(tinyint, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_ne'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_ge(tinyint, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_ge'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_gt(tinyint, tinyint)
+    RETURNS bool
+    AS 'omnitype', 'tinyint_gt'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE OPERATOR < (
+    LEFTARG = tinyint,
+    RIGHTARG = tinyint,
+    PROCEDURE = tinyint_lt,
+    COMMUTATOR = >,
+    NEGATOR = >=
+);
+
+CREATE OPERATOR <= (
+    LEFTARG = tinyint,
+    RIGHTARG = tinyint,
+    PROCEDURE = tinyint_le,
+    COMMUTATOR = >=,
+    NEGATOR = >
+);
+
+CREATE OPERATOR = (
+    LEFTARG = tinyint,
+    RIGHTARG = tinyint,
+    PROCEDURE = tinyint_eq,
+    COMMUTATOR = =,
+    NEGATOR = <>,
+    HASHES,  -- 支持哈希索引
+    MERGES   -- 支持合并连接
+);
+
+CREATE OPERATOR <> (
+    LEFTARG = tinyint,
+    RIGHTARG = tinyint,
+    PROCEDURE = tinyint_ne,
+    COMMUTATOR = <>,
+    NEGATOR = =
+);
+
+CREATE OPERATOR >= (
+    LEFTARG = tinyint,
+    RIGHTARG = tinyint,
+    PROCEDURE = tinyint_ge,
+    COMMUTATOR = <=,
+    NEGATOR = <
+);
+
+CREATE OPERATOR > (
+    LEFTARG = tinyint,
+    RIGHTARG = tinyint,
+    PROCEDURE = tinyint_gt,
+    COMMUTATOR = <,
+    NEGATOR = <=
+);
+
+CREATE FUNCTION tinyint_cmp(tinyint, tinyint)
+    RETURNS integer
+    AS 'omnitype', 'tinyint_cmp'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE FUNCTION tinyint_hash(tinyint)
+    RETURNS integer
+    AS 'omnitype', 'tinyint_hash'
+    LANGUAGE C IMMUTABLE STRICT;
+
+-------------------- 操作符类 --------------------
+
+-- BTree 操作符类
+CREATE OPERATOR CLASS tinyint_btree_ops
+    DEFAULT FOR TYPE tinyint USING btree AS
+        -- 同类型操作符
+        OPERATOR 1 < ,
+        OPERATOR 2 <= ,
+        OPERATOR 3 = ,
+        OPERATOR 4 >= ,
+        OPERATOR 5 > ,
+
+        -- 跨类型操作符 (tinyint vs integer)，正向
+        OPERATOR 1 < (tinyint, integer),
+        OPERATOR 2 <= (tinyint, integer),
+        OPERATOR 3 = (tinyint, integer),
+        OPERATOR 4 >= (tinyint, integer),
+        OPERATOR 5 > (tinyint, integer),
+
+        -- 跨类型操作符 (integer vs tinyint)，反向
+        OPERATOR 1 < (integer, tinyint),
+        OPERATOR 2 <= (integer, tinyint),
+        OPERATOR 3 = (integer, tinyint),
+        OPERATOR 4 >= (integer, tinyint), -- 现在已定义
+        OPERATOR 5 > (integer, tinyint),
+
+        -- 指定多个比较函数
+        FUNCTION 1 tinyint_cmp(tinyint, tinyint),
+        FUNCTION 1 tinyint_cmp_integer(tinyint, integer),
+        FUNCTION 1 integer_cmp_tinyint(integer, tinyint);
+
+-- Hash 操作符类
+CREATE OPERATOR CLASS tinyint_hash_ops
+    DEFAULT FOR TYPE tinyint USING hash AS
+        OPERATOR 1 = ,
+        FUNCTION 1 tinyint_hash(tinyint);
+
+-------------------- 类型转换 --------------------
+
+-- integer --> tinyint 转换（带范围检查）
+
+CREATE FUNCTION int4_to_tinyint(integer)
+    RETURNS tinyint
+    AS 'omnitype', 'int4_to_tinyint'
+    LANGUAGE C IMMUTABLE STRICT;
+
+CREATE CAST (integer AS tinyint)
+    WITH FUNCTION int4_to_tinyint(integer)
+    AS IMPLICIT; -- 必须是 IMPLICIT 转换
+
+-- tinyint --> integer 转换（安全转换）
+
+CREATE FUNCTION tinyint_to_int4(tinyint)
+    RETURNS integer
+    AS 'SELECT $1::integer;'
+    LANGUAGE SQL IMMUTABLE STRICT;
+
+CREATE CAST (tinyint AS integer)
+    WITH FUNCTION tinyint_to_int4(tinyint)
+    AS IMPLICIT; -- 必须是 IMPLICIT 转换
+
+-- ==================== 创建 tinyfloat（基于 CHECK 约束） ====================
+
+-- 创建自定义 tinyfloat 域类型（基于 real 类型）
+CREATE DOMAIN tinyfloat AS real
+CHECK (
+    VALUE >= -10.0 AND
+    VALUE <= 10.0
+)
+NOT NULL;  -- 根据需求决定是否允许 NULL
 
 -- ==================== 创建自定义复数类型 complex、操作符及索引 ====================
 
@@ -252,6 +623,7 @@ CREATE FUNCTION mytext_op_ge(mytext, mytext) RETURNS boolean
     LANGUAGE C STRICT;
 
 -- 创建操作符
+
 CREATE OPERATOR < (
     LEFTARG = mytext,
     RIGHTARG = mytext,
@@ -354,7 +726,7 @@ CREATE OPERATOR CLASS mytext_hash_ops
 
 -- Bloom 索引的限制：
 -- 1. 该模块仅包含 int4 和 text 的操作符类。
--- 2. 搜索仅支持 = 运算符。但是将来有可能添加对具有并集和交集操作的数组的支持。
+-- 2. 搜索仅支持 = 操作符。但是将来有可能添加对具有并集和交集操作的数组的支持。
 -- 3. bloom 访问方法不支持 UNIQUE 索引。
 -- 4. bloom 访问方法不支持搜索 NULL 值。
 
@@ -398,7 +770,7 @@ RETURNS void
 AS 'omnitype', 'mytext_brin_minmax_options'
 LANGUAGE C IMMUTABLE STRICT;
 
--- 计算索引扫描的代价（TODO: Deep Seek 认为可选，我认为不支持）
+-- 计算索引扫描的代价（TODO: Deep Seek 认为可选，从 pg_proc.dat 中定义来看，我认为不支持）
 -- CREATE FUNCTION mytext_brin_minmax_penalty(internal, internal, internal)
 -- RETURNS float8
 -- AS 'omnitype', 'mytext_brin_minmax_penalty'
@@ -413,7 +785,7 @@ CREATE OPERATOR CLASS mytext_brin_ops
     OPERATOR 3 = (mytext, mytext),    -- 策略3：等于
     OPERATOR 4 >= (mytext, mytext),   -- 策略4：大于等于
     OPERATOR 5 > (mytext, mytext),    -- 策略5：大于
-    -- 声明支持函数（按编号1-6）
+    -- 声明支持函数（编号1-4）
     FUNCTION 1 mytext_brin_minmax_opcinfo(internal), -- 初始化
     FUNCTION 2 mytext_brin_minmax_add_value(internal, internal, internal, internal), -- 添加值到摘要
     FUNCTION 3 mytext_brin_minmax_consistent(internal, internal, internal), -- 一致性检查
@@ -425,7 +797,7 @@ CREATE OPERATOR CLASS mytext_brin_ops
     -- Deep Seek 认为的示例：mytext_brin_minmax_penalty(internal, internal, internal), -- 计算索引扫描代价（可选）
 
     -- BRIN 索引的 MinMax 操作符类、Bloom 操作符类，对应函数编号为 1-5, 11
-    -- 从 pg_proc.dat 中 BRIN 索引相关函数定义来看：
+    -- 从 pg_proc.dat 中 BRIN 索引相关函数定义（minmax oid）来看：
     -- 1    brin_bloom_opcinfo
     -- 2    brin_bloom_add_value
     -- 3    brin_bloom_consistent

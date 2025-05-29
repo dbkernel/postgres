@@ -86,8 +86,9 @@ CREATE TABLE test_mytext (
 INSERT INTO test_mytext (value, value2, time) VALUES
     ('hello', 'a001', '2025-05-21 18:00:00'),
     ('world', 'w100', '2025-05-01 12:12:00'),
-    ('example', 'b02', '2024-05-01 11:30:30'),
     ('testing', 'a088', '2023-04-01 12:12:00'),
+    ('hello', 't800', '2023-04-03 12:13:00'),
+    ('example', 'b02', '2024-05-01 11:30:30'),
     ('postgresql', 't033', '2025-04-01 22:33:44'),
     ('mysql', 't800', '2021-06-01 10:50:40');
 
@@ -314,7 +315,6 @@ DROP INDEX mytext_value_bloom_idx2;
 
 ---------------- 验证操作符（BRIN 索引） ----------------
 
--- TODO: 尚未调通 BRIN 索引
 -- Deep Seek 认为 BRIN 索引可以支持 mytext 类型，但需满足以下条件：
 -- 1. 实现比较操作符（<, <=, =, >=, >）。
 -- 2. 正确编写 BRIN 支持函数（初始化、添加值、一致性检查、合并摘要）。
@@ -348,6 +348,7 @@ LEFT JOIN pg_opclass opc ON idx.opclass_oid = opc.oid;
 
 -- 使用自定义操作符进行查询（BRIN 索引）
 SET enable_seqscan = off;
+-- TODO: 预期结果集为4行，但目前为空
 SELECT * FROM test_mytext WHERE value > 'hello'; -- 测试大于操作符
 SELECT * FROM test_mytext WHERE value <= 'world'; -- 测试小于等于操作符
 SELECT * FROM test_mytext WHERE value = 'example'; -- 测试等于操作符
