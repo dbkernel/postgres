@@ -340,7 +340,7 @@ find_record(PG_FUNCTION_ARGS)
         if (row == 1) break;
         HeapTuple spiTuple = SPI_tuptable->vals[row];
         int atts = 0;
-        elog(INFO, "Row %lu", row + 1); // 行号从1开始
+        elog(INFO, "Row %d", row + 1); // 行号从1开始
         for (int i = 0; i < spiTupDesc->natts; i++) {
             //跳过删除的字段
             if(spiTupDesc->attrs[i].attisdropped)
@@ -471,13 +471,11 @@ find_records_multi_call(PG_FUNCTION_ARGS)
     char *where_str = text_to_cstring(where_arg);
 
     FuncCallContext *funcctx;
-    MemoryContext oldcontext;
     const int MAX_ROWS = 1000;
 
     /* 首次调用初始化 */
     if (SRF_IS_FIRSTCALL()) {
-        TupleDesc spiTupDesc = NULL, retTupDesc = NULL;
-        SPITupleTable *spi_tuptable = NULL;
+        TupleDesc retTupDesc = NULL;
         Tuplestorestate *tupstore = NULL;
         MemoryContext oldctx;
         int ret;
@@ -690,7 +688,7 @@ Datum median_agg_finalfn(PG_FUNCTION_ARGS) {
         // 相加
         Datum sum = DirectFunctionCall2(numeric_add, val1, val2);
         // 除以2
-        Datum divisor = Float8GetDatum(2.0);
+        // Datum divisor = Float8GetDatum(2.0);
         result = DirectFunctionCall2(numeric_div, sum,
             DirectFunctionCall3(numeric_in, CStringGetDatum("2"),
                                 ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1)));
