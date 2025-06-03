@@ -770,11 +770,8 @@ RETURNS void
 AS 'omnitype', 'mytext_brin_minmax_options'
 LANGUAGE C IMMUTABLE STRICT;
 
--- 计算索引扫描的代价（TODO: Deep Seek 认为可选，从 pg_proc.dat 中定义来看，我认为不支持）
--- CREATE FUNCTION mytext_brin_minmax_penalty(internal, internal, internal)
--- RETURNS float8
--- AS 'omnitype', 'mytext_brin_minmax_penalty'
--- LANGUAGE C IMMUTABLE STRICT;
+-- 在创建操作符类之前添加操作符类
+-- CREATE OPERATOR FAMILY mytext_brin_ops_family USING brin;
 
 -- 创建 BRIN 操作符类
 CREATE OPERATOR CLASS mytext_brin_ops
