@@ -177,8 +177,8 @@ SELECT * FROM comp_test ORDER BY data; -- 依赖比较操作符
 SELECT * FROM comp_test WHERE data > 'text1|varchar2|char1|\x48656c6c6f20576f726c6421|{"key":123}|<xml>data1</xml>|192.168.1.1|B10100|"quick brown"|a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11|100.106|"2023-01-01 12:30:55"|2023-01-01|5678'; -- 会跳过 text1 开头的行
 
 -- update 操作
-UPDATE comp_test SET data = 'text20|varchar20|char20|\x48656c6c6f20576f726c6421|{"key":123}|<xml>data1</xml>|192.168.1.1|B10100|"quick brown"|a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11|100.106|"2023-01-01 12:30:55"|2023-01-01|5678' WHERE data = 'text1|varchar1|char1|\x48656c6c6f20576f726c6421|{"key":123}|<xml>data1</xml>|192.168.1.1|B10100|"quick brown"|a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11|100.106|"2023-01-01 12:30:55"|2023-01-01|5678';
 -- 期待输出：UPDATE 1
+UPDATE comp_test SET data = 'text20|varchar20|char20|\x48656c6c6f20576f726c6421|{"key":123}|<xml>data1</xml>|192.168.1.1|B10100|"quick brown"|a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11|100.106|"2023-01-01 12:30:55"|2023-01-01|5678' WHERE data = 'text1|varchar1|char1|\x48656c6c6f20576f726c6421|{"key":123}|<xml>data1</xml>|192.168.1.1|B10100|"quick brown"|a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11|100.106|"2023-01-01 12:30:55"|2023-01-01|5678';
 
 -- delete 操作，与 update 操作类似
 

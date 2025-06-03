@@ -8,6 +8,7 @@ OBJS = \
 
 EXTENSION = sandbox
 DATA = sandbox--1.0.sql
+PG_CFLAGS += -Wno-declaration-after-statement
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

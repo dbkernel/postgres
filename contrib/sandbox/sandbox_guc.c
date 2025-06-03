@@ -18,18 +18,18 @@ static const struct config_enum_entry mode_options[] = {
     {NULL, 0, NULL}
 };
 
-/* 检查所有 sandbox 参数的合法性，参数赋值之前的动作 */
+/* 检查 int 类型参数合法性，参数赋值之前的动作 */
 static bool
-check_sandbox_int_params(char **newval, void **extra, GucSource source)
+check_sandbox_int_params(int *newval, void **extra, GucSource source)
 {
     return true;
 }
 
 /* 参数赋值后的动作 */
 static void
-assign_sandbox_int_params(void *extra)
+assign_sandbox_int_params(int newval, void *extra)
 {
-    return true;
+    return;
 }
 
 /* 参数初始化函数 */

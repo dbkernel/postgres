@@ -4,6 +4,7 @@
 #include "utils/elog.h"
 #include "utils/sortsupport.h"
 #include "access/hash.h"
+#include "common/string.h"
 #include "libpq/pqformat.h"
 
 /* 类型定义 */
@@ -77,130 +78,6 @@ tinyint_send(PG_FUNCTION_ARGS)
 }
 
 /* ===== 比较函数 ===== */
-
-/* tinyint 与 integer 的比较函数（正向） */
-
-PG_FUNCTION_INFO_V1(tinyint_lt_integer);
-Datum tinyint_lt_integer(PG_FUNCTION_ARGS) {
-    tinyint a = PG_GETARG_INT32(0);
-    int32 b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a < b);
-}
-
-PG_FUNCTION_INFO_V1(tinyint_le_integer);
-Datum tinyint_le_integer(PG_FUNCTION_ARGS) {
-    tinyint a = PG_GETARG_INT32(0);
-    int32 b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a <= b);
-}
-
-PG_FUNCTION_INFO_V1(tinyint_eq_integer);
-Datum tinyint_eq_integer(PG_FUNCTION_ARGS) {
-    tinyint a = PG_GETARG_INT32(0);
-    int32 b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a == b);
-}
-
-PG_FUNCTION_INFO_V1(tinyint_ne_integer);
-Datum tinyint_ne_integer(PG_FUNCTION_ARGS) {
-    tinyint a = PG_GETARG_INT32(0);
-    int32 b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a != b);
-}
-
-PG_FUNCTION_INFO_V1(tinyint_ge_integer);
-Datum tinyint_ge_integer(PG_FUNCTION_ARGS) {
-    tinyint a = PG_GETARG_INT32(0);
-    int32 b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a >= b);
-}
-
-PG_FUNCTION_INFO_V1(tinyint_gt_integer);
-Datum tinyint_gt_integer(PG_FUNCTION_ARGS) {
-    tinyint a = PG_GETARG_INT32(0);
-    int32 b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a > b);
-}
-
-/* 比较函数（用于BTree排序） */
-PG_FUNCTION_INFO_V1(tinyint_cmp_integer);
-Datum
-tinyint_cmp_integer(PG_FUNCTION_ARGS)
-{
-    tinyint a = PG_GETARG_INT32(0);
-    int32 b = PG_GETARG_INT32(1);
-
-    /* 范围检查确保 b 在 tinyint 范围内 */
-    if (b < -128 || b > 127) {
-        elog(ERROR, "integer value %d is out of range for tinyint", b);
-    }
-
-    int32 result = (a < b ? -1: (a > b ? 1 : 0));
-    PG_RETURN_INT32(result);
-}
-
-/* integer 与 tinyint 的比较函数（反向） */
-
-PG_FUNCTION_INFO_V1(integer_lt_tinyint);
-Datum integer_lt_tinyint(PG_FUNCTION_ARGS) {
-    int32 a = PG_GETARG_INT32(0);
-    tinyint b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a < b);
-}
-
-PG_FUNCTION_INFO_V1(integer_le_tinyint);
-Datum integer_le_tinyint(PG_FUNCTION_ARGS) {
-    int32 a = PG_GETARG_INT32(0);
-    tinyint b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a <= b);
-}
-
-PG_FUNCTION_INFO_V1(integer_eq_tinyint);
-Datum integer_eq_tinyint(PG_FUNCTION_ARGS) {
-    int32 a = PG_GETARG_INT32(0);
-    tinyint b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a == b);
-}
-
-PG_FUNCTION_INFO_V1(integer_ne_tinyint);
-Datum integer_ne_tinyint(PG_FUNCTION_ARGS) {
-    int32 a = PG_GETARG_INT32(0);
-    tinyint b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a != b);
-}
-
-PG_FUNCTION_INFO_V1(integer_ge_tinyint);
-Datum integer_ge_tinyint(PG_FUNCTION_ARGS) {
-    int32 a = PG_GETARG_INT32(0);
-    tinyint b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a >= b);
-}
-
-PG_FUNCTION_INFO_V1(integer_gt_tinyint);
-Datum integer_gt_tinyint(PG_FUNCTION_ARGS) {
-    int32 a = PG_GETARG_INT32(0);
-    tinyint b = PG_GETARG_INT32(1);
-    PG_RETURN_BOOL(a > b);
-}
-
-/* 比较函数（用于BTree排序） */
-PG_FUNCTION_INFO_V1(integer_cmp_tinyint);
-Datum
-integer_cmp_tinyint(PG_FUNCTION_ARGS)
-{
-    int32 a = PG_GETARG_INT32(0);
-    tinyint b = PG_GETARG_INT32(1);
-
-    /* 范围检查确保 b 在 tinyint 范围内 */
-    if (b < -128 || b > 127) {
-        elog(ERROR, "integer value %d is out of range for tinyint", b);
-    }
-
-    int32 result = (a < b ? -1: (a > b ? 1 : 0));
-    PG_RETURN_INT32(result);
-}
-
-/* tinyint 的比较函数 */
 
 PG_FUNCTION_INFO_V1(tinyint_lt);
 Datum tinyint_lt(PG_FUNCTION_ARGS) {
