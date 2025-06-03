@@ -348,13 +348,14 @@ LEFT JOIN pg_opclass opc ON idx.opclass_oid = opc.oid;
 
 -- 使用自定义操作符进行查询（BRIN 索引）
 SET enable_seqscan = off;
--- TODO: 预期结果集为4行，但目前为空
 SELECT * FROM test_mytext WHERE value > 'hello'; -- 测试大于操作符
 SELECT * FROM test_mytext WHERE value <= 'world'; -- 测试小于等于操作符
 SELECT * FROM test_mytext WHERE value = 'example'; -- 测试等于操作符
 SELECT * FROM test_mytext WHERE value >= 'testing'; -- 测试大于等于操作符
 SELECT * FROM test_mytext WHERE value < 'postgresql'; -- 测试小于操作符
--- 期望输出的过滤条件为：Index Cond: (test_mytext.value > 'hello'::mytext)
+-- 期望输出的过滤条件为：
+-- Recheck Cond: (test_mytext.value > 'hello'::mytext)
+-- Index Cond: (test_mytext.value > 'hello'::mytext)
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value > 'hello'; -- 测试大于操作符
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value <= 'world'; -- 测试小于等于操作符
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value = 'example'; -- 测试等于操作符

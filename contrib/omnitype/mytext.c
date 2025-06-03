@@ -173,7 +173,7 @@ PG_FUNCTION_INFO_V1(mytext_brin_minmax_add_value);
 Datum mytext_brin_minmax_add_value(PG_FUNCTION_ARGS) {
     BrinDesc *bdesc = (BrinDesc *)PG_GETARG_POINTER(0);
     BrinValues *column = (BrinValues *)PG_GETARG_POINTER(1);
-    mytext *newval = PG_DETOAST_DATUM_COPY(PG_GETARG_DATUM(2)); // 深拷贝当前值（非必须），TODO: 不一定需要 COPY
+    mytext *newval = PG_DETOAST_DATUM(PG_GETARG_DATUM(2));
     bool isnull = PG_GETARG_BOOL(3);
     Oid collid = PG_GET_COLLATION();
     bool updated = false;
@@ -188,6 +188,7 @@ Datum mytext_brin_minmax_add_value(PG_FUNCTION_ARGS) {
         column->bv_values = (Datum *)palloc0(2 * sizeof(Datum));
         column->bv_attno = 2;
         column->bv_hasnulls = true;  // 初始时认为有NULL值
+        column->bv_allnulls = true; // 当前范围块的所有值都是 NULL
         column->bv_values[0] = (Datum)NULL; // 最小值设为NULL
         column->bv_values[1] = (Datum)NULL; // 最大值设为NULL
     }
@@ -205,7 +206,8 @@ Datum mytext_brin_minmax_add_value(PG_FUNCTION_ARGS) {
             // 首次初始化摘要，存储深拷贝后的值
             column->bv_values[0] = copied_datum;  // 最小值
             column->bv_values[1] = copied_datum;  // 最大值
-            column->bv_hasnulls = false;
+            column->bv_hasnulls = false; // 当前范围块的所有值存在 NULL 值
+            column->bv_allnulls = false; // 当前范围块的所有值并不都是 NULL
             updated = true;
         } else {
             olog(DEBUG1, "before update: min_val=%s, max_val=%s, cur_val=%s",
@@ -364,34 +366,6 @@ Datum mytext_brin_minmax_union(PG_FUNCTION_ARGS) {
     }
 
     PG_RETURN_BOOL(updated);
-}
-
-// 计算索引扫描的代价，用于查询优化器选择执行计划
-// TODO: Deep Seek 认为可选，从 pg_proc.dat 中定义来看，我认为不支持
-PG_FUNCTION_INFO_V1(mytext_brin_minmax_penalty);
-Datum mytext_brin_minmax_penalty(PG_FUNCTION_ARGS) {
-    BrinValues *orig = (BrinValues *)PG_GETARG_POINTER(0);
-    BrinValues *current = (BrinValues *)PG_GETARG_POINTER(1);
-    Oid collid = PG_GET_COLLATION();
-    float4 penalty = 1.0; // 默认代价因子
-
-    // 示例：根据数据范围跨度计算代价（跨度越大，代价越高）
-    if (!orig->bv_hasnulls && !current->bv_hasnulls) {
-        mytext *orig_min = (mytext *)DatumGetPointer(orig->bv_values[0]);
-        mytext *orig_max = (mytext *)DatumGetPointer(orig->bv_values[1]);
-        mytext *curr_min = (mytext *)DatumGetPointer(current->bv_values[0]);
-        mytext *curr_max = (mytext *)DatumGetPointer(current->bv_values[1]);
-
-        int min_diff = mytext_cmp_internal(orig_min, curr_min, collid);
-        int max_diff = mytext_cmp_internal(orig_max, curr_max, collid);
-
-        // 假设跨度越大，代价越高（示例逻辑，需根据实际类型调整）
-        if (min_diff != 0 || max_diff != 0) {
-            penalty += fabs(min_diff) + fabs(max_diff);
-        }
-    }
-
-    PG_RETURN_FLOAT4(penalty);
 }
 
 // 处理索引创建时的选项参数，如存储方式、压缩策略等（可选）
