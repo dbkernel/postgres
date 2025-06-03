@@ -3,6 +3,7 @@
 
 #include "postgres.h"
 #include "fmgr.h"
+#include "omni_utils.h"
 
 #include "funcapi.h"
 #include "mb/pg_wchar.h"
@@ -57,8 +58,6 @@ _PG_fini(void)
 /**********************************
  * composite data type
  **********************************/
-// 必须要考虑对齐问题，否则会出现越界、错位访问等一系列问题
-#define PADDING_TO_ALIGN 1
 
 typedef enum CompositeIndex {
     COM_TEXT = 0,
@@ -124,13 +123,6 @@ typedef struct Composite {
     int32       f14_int;
 } Composite;
 
-bool field_is_null(char **fields, CompositeIndex pos)
-{
-    if (strlen(fields[pos]) == 0 || strcmp(fields[pos], "NULL") == 0)
-        return true;
-    return false;
-}
-
 PG_FUNCTION_INFO_V1(composite_in);
 Datum
 composite_in(PG_FUNCTION_ARGS)
@@ -145,14 +137,7 @@ composite_in(PG_FUNCTION_ARGS)
     char       *ptr;
 
     /* 分割输入字符串 */
-    /* 注意：
-       1. SplitIdentifierString 函数中，namelist 中各个元素的内容是通过 nextp 指针
-          直接在输入字符串 rawstring 上进行定位的，并没有使用动态内存分配函数来分配内存，
-          因此，后面无需使用深拷贝释放这部分内存（强行释放会导致crash）。
-       2. 包含空格的子串必须以 "" 标注。该函数默认会将空格及其他空白字符视为分隔符的一部分，
-          这是因为该函数的设计初衷是解析 SQL 标识符，而 SQL 标识符通常不允许包含空格。
-       3. 该函数主要用于分割 NameData 数据，因此，会将长字符串截断为 64 个字符。 */
-    if (!SplitIdentifierString(input_str, '|', &namelist))
+    if (!split_string(input_str, '|', &namelist))
         ereport(ERROR, (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
                         errmsg("invalid input syntax for composite type")));
 
@@ -185,9 +170,7 @@ composite_in(PG_FUNCTION_ARGS)
 
     // 计算总内存大小（包含 vl_len_ 自身）
     Size total_size = VARHDRSZ; // 初始化为 vl_len_ 的大小
-#ifdef PADDING_TO_ALIGN
     total_size = MAXALIGN(total_size); // 在 vl_len_ 后面填充4个字节以对齐
-#endif
 
     // 处理变长字段
     elog(DEBUG1, "composite_in fields ...");
@@ -203,9 +186,7 @@ composite_in(PG_FUNCTION_ARGS)
                                                 ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = VARSIZE_ANY(field_data[i].ptr);
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 break;
             case COM_VARCHAR:
                 // 可指定 typmod=128 并校验长度，会在字符串中补充很多空格
@@ -213,9 +194,7 @@ composite_in(PG_FUNCTION_ARGS)
                                                 ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = VARSIZE_ANY(field_data[i].ptr);
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 if (VARSIZE_ANY_EXHDR(field_data[i].ptr) > 128) {
                     ereport(ERROR, (errcode(ERRCODE_STRING_DATA_RIGHT_TRUNCATION),
                                     errmsg("value too long for varchar(128)")));
@@ -227,25 +206,19 @@ composite_in(PG_FUNCTION_ARGS)
                                                 ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = VARSIZE_ANY(field_data[i].ptr);
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 break;
             case COM_BYTEA:
                 field_data[i].datum = DirectFunctionCall1(byteain, CStringGetDatum(fields[i]));
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = VARSIZE_ANY(field_data[i].ptr);
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 break;
             case COM_JSON:
                 field_data[i].datum = DirectFunctionCall1(jsonb_in, CStringGetDatum(fields[i]));
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = VARSIZE_ANY(field_data[i].ptr);
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 break;
             case COM_XML:
 #ifdef USE_LIBXML // 编译时需启用 --with-libxml（依赖 libxml 库）
@@ -257,42 +230,32 @@ composite_in(PG_FUNCTION_ARGS)
 #endif
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = VARSIZE_ANY(field_data[i].ptr);
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 break;
             case COM_INET:
                 field_data[i].datum = DirectFunctionCall1(inet_in, CStringGetDatum(fields[i]));
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = VARSIZE_ANY(field_data[i].ptr);
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 break;
             case COM_BIT:
                 field_data[i].datum = DirectFunctionCall3(varbit_in, CStringGetDatum(fields[i]),
                                                 ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = VARSIZE_ANY(field_data[i].ptr);
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 break;
             case COM_TSVECTOR:
                 field_data[i].datum = DirectFunctionCall1(tsvectorin, CStringGetDatum(fields[i]));
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = VARSIZE_ANY(field_data[i].ptr);
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 break;
             case COM_UUID:
                 field_data[i].datum = DirectFunctionCall1(uuid_in, CStringGetDatum(fields[i]));
                 field_data[i].ptr = DatumGetPointer(field_data[i].datum);
                 field_data[i].size = UUID_LEN; // sizeof(pg_uuid_t)
-#ifdef PADDING_TO_ALIGN
                 total_size += MAXALIGN(field_data[i].size);
-#endif
                 break;
             default:
                 break;
@@ -300,17 +263,13 @@ composite_in(PG_FUNCTION_ARGS)
     }
 
     // 标量字段总大小及填充
-#ifdef PADDING_TO_ALIGN
     total_size = MAXALIGN(total_size); // 对齐到8字节(x64)边界
-#endif
     total_size += sizeof(double) + sizeof(Timestamp) + sizeof(DateADT) + sizeof(int32); // f11 - f14
 
     comp = (Composite *)palloc0(total_size);
     SET_VARSIZE(comp, total_size); // 设置 vl_len_ 的值
     ptr = (char *)comp + VARHDRSZ; // 开始填充 类 varlena 结构的 vl_dat 部分
-#ifdef PADDING_TO_ALIGN
     // ptr = (char *) MAXALIGN(ptr); // 跳过在 vl_len_ 后面填充的4个字节
-#endif
 
     // 复制变长字段并填充
     for (i = 0; i < COM_LEN; i++) {
@@ -328,9 +287,7 @@ composite_in(PG_FUNCTION_ARGS)
             case COM_UUID:
                 memcpy(ptr, field_data[i].ptr, field_data[i].size);
                 ptr += field_data[i].size;
-#ifdef PADDING_TO_ALIGN
                 ptr = (char *) MAXALIGN(ptr); // 对齐到8字节(x64)
-#endif
                 pfree(field_data[i].ptr); // 释放临时对象
                 break;
             default:
@@ -339,9 +296,7 @@ composite_in(PG_FUNCTION_ARGS)
     }
 
     // 处理标量字段
-#ifdef PADDING_TO_ALIGN
     ptr = (char *) MAXALIGN(ptr); // 确保8字节(x64)对齐
-#endif
 
     double *f11_double = (double *)ptr;
     *f11_double = DatumGetFloat8(DirectFunctionCall1(float8in, CStringGetDatum(fields[COM_DOUBLE])));
@@ -375,18 +330,14 @@ PG_FUNCTION_INFO_V1(composite_out);
 Datum
 composite_out(PG_FUNCTION_ARGS)
 {
-#ifdef PADDING_TO_ALIGN
+    // 对齐：在插入数据时，调用方传入的 Composite 是4字节对齐而非8字节对齐，因此，需要深拷贝
     struct varlena *mycomp = PG_DETOAST_DATUM_COPY(PG_GETARG_DATUM(0));
-#else
-    // Composite  *comp = (Composite *)PG_GETARG_POINTER(0); // 只获取指针，不做解压缩
-    struct varlena *mycomp = PG_GETARG_VARLENA_P(0); // 实际调用的是 PG_DETOAST_DATUM
-#endif
+    // 非对齐
+    // struct varlena *mycomp = PG_GETARG_VARLENA_P(0); // 实际调用的是 PG_DETOAST_DATUM
+
     Composite  *comp = (Composite *)mycomp->vl_dat; // 也可以是 mycom + VARHDRSZ，以跳过 vl_len_
     char *ptr = (char *) comp;
-
-#ifdef PADDING_TO_ALIGN
     // ptr = (char *) MAXALIGN(ptr); // 跳过在 vl_len_ 后面填充的4个字节
-#endif
 
     StringInfoData str;
     initStringInfo(&str);
@@ -396,25 +347,19 @@ composite_out(PG_FUNCTION_ARGS)
     text *f1_text = (text *)ptr; // 其中包含了 vl_len_
     appendStringInfoString(&str, TextDatumGetCString(f1_text));
     ptr += VARSIZE_ANY(f1_text);
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr); // 对齐到8字节(x64)
-#endif
 
     VarChar *f2_varchar = (VarChar *)ptr;
     appendStringInfoChar(&str, '|');
     appendStringInfoString(&str, TextDatumGetCString(f2_varchar));
     ptr += VARSIZE_ANY(f2_varchar);
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr);
-#endif
 
     BpChar *f3_char = (BpChar *)ptr;
     appendStringInfoChar(&str, '|');
     appendStringInfoString(&str, TextDatumGetCString(f3_char));
     ptr += VARSIZE_ANY(f3_char);
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr);
-#endif
 
     bytea *f4_bytea = (bytea *)ptr;
     Datum bytea_datum = DirectFunctionCall1(byteaout, PointerGetDatum(f4_bytea));
@@ -423,9 +368,7 @@ composite_out(PG_FUNCTION_ARGS)
     appendStringInfoString(&str, bytea_str);
     pfree(bytea_str);
     ptr += VARSIZE_ANY(f4_bytea);
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr);
-#endif
 
     Jsonb *f5_json = (Jsonb *)ptr;
     Datum jsonb_datum = DirectFunctionCall1(jsonb_out, PointerGetDatum(f5_json));
@@ -434,9 +377,7 @@ composite_out(PG_FUNCTION_ARGS)
     appendStringInfoString(&str, json_str);
     pfree(json_str);
     ptr += VARSIZE_ANY(f5_json);
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr);
-#endif
 
     xmltype *f6_xml = (xmltype *)ptr;
     appendStringInfoChar(&str, '|');
@@ -449,9 +390,7 @@ composite_out(PG_FUNCTION_ARGS)
     appendStringInfoString(&str, xml_str);
     pfree(xml_str);
     ptr += VARSIZE_ANY(f6_xml);
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr);
-#endif
 
     inet *f7_net = (inet *)ptr;
     Datum net_datum = DirectFunctionCall1(inet_out, PointerGetDatum(f7_net));
@@ -459,9 +398,7 @@ composite_out(PG_FUNCTION_ARGS)
     appendStringInfoString(&str, DatumGetCString(net_datum));
     pfree(DatumGetPointer(net_datum));
     ptr += VARSIZE_ANY(f7_net);
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr);
-#endif
 
     VarBit *f8_bit = (VarBit *)ptr;
     Datum bit_datum = DirectFunctionCall1(bit_out, PointerGetDatum(f8_bit));
@@ -469,9 +406,7 @@ composite_out(PG_FUNCTION_ARGS)
     appendStringInfoString(&str, DatumGetCString(bit_datum));
     pfree(DatumGetPointer(bit_datum));
     ptr += VARSIZE_ANY(f8_bit);
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr);
-#endif
 
     TSVector *f9_tsvec = (TSVector *)ptr;
     Datum ts_datum = DirectFunctionCall1Coll(tsvectorout, PG_GET_COLLATION(), // 显式指定 collation
@@ -480,9 +415,7 @@ composite_out(PG_FUNCTION_ARGS)
     appendStringInfoString(&str, DatumGetCString(ts_datum));
     pfree(DatumGetPointer(ts_datum));
     ptr += VARSIZE_ANY(f9_tsvec);
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr);
-#endif
 
     pg_uuid_t *f10_uuid = (pg_uuid_t *)ptr;
     Datum uuid_datum = DirectFunctionCall1(uuid_out, PointerGetDatum(f10_uuid));
@@ -490,9 +423,7 @@ composite_out(PG_FUNCTION_ARGS)
     appendStringInfoString(&str, DatumGetCString(uuid_datum));
     pfree(DatumGetPointer(uuid_datum));
     ptr += UUID_LEN; // sizeof(*f10_uuid), 16 bytes
-#ifdef PADDING_TO_ALIGN
     ptr = (char *)MAXALIGN(ptr); // 确保对齐，准备解析标量字段
-#endif
 
     // 解析标量字段（确保对齐）
     double f11_double = *((double *) ptr);
@@ -603,10 +534,8 @@ composite_cmp(PG_FUNCTION_ARGS)
     {
         if (i == COM_DOUBLE) // 在开始处理标量字段前，先对齐内存
         {
-#ifdef PADDING_TO_ALIGN
             ptr_a = (char *) MAXALIGN(ptr_a);
             ptr_b = (char *) MAXALIGN(ptr_b);
-#endif
         }
 
         switch (i)
@@ -786,14 +715,12 @@ composite_cmp(PG_FUNCTION_ARGS)
                 elog(ERROR, "未处理的字段类型: %d", i);
         }
 
-        /* 内存对齐（若启用） */
-#ifdef PADDING_TO_ALIGN
+        /* 内存对齐 */
         if (i < COM_DOUBLE) // 变长字段后对齐
         {
             ptr_a = (char *) MAXALIGN(ptr_a);
             ptr_b = (char *) MAXALIGN(ptr_b);
         }
-#endif
 
         /* 如果当前字段比较结果非零，提前返回 */
         if (cmp_result != 0)

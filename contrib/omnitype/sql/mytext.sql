@@ -245,16 +245,13 @@ LEFT JOIN pg_opclass opc ON idx.opclass_oid = opc.oid;
 -- (2 rows)
 
 SET enable_seqscan = off;
-
 SELECT * FROM test_mytext WHERE value = 'example'; -- 测试等于操作符
-
 -- 期望结果包含：
 -- Bitmap Heap Scan on public.test_mytext
 -- Recheck Cond: (test_mytext.value = 'example'::mytext)
 -- Bitmap Index Scan on mytext_value_bloom_idx
 -- Index Cond: (test_mytext.value = 'example'::mytext)
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value = 'example'; -- 测试等于操作符
-
 SET enable_seqscan = on;
 
 DROP INDEX mytext_value_bloom_idx;
@@ -348,11 +345,13 @@ LEFT JOIN pg_opclass opc ON idx.opclass_oid = opc.oid;
 
 -- 使用自定义操作符进行查询（BRIN 索引）
 SET enable_seqscan = off;
+
 SELECT * FROM test_mytext WHERE value > 'hello'; -- 测试大于操作符
 SELECT * FROM test_mytext WHERE value <= 'world'; -- 测试小于等于操作符
 SELECT * FROM test_mytext WHERE value = 'example'; -- 测试等于操作符
 SELECT * FROM test_mytext WHERE value >= 'testing'; -- 测试大于等于操作符
 SELECT * FROM test_mytext WHERE value < 'postgresql'; -- 测试小于操作符
+
 -- 期望输出的过滤条件为：
 -- Recheck Cond: (test_mytext.value > 'hello'::mytext)
 -- Index Cond: (test_mytext.value > 'hello'::mytext)
@@ -361,9 +360,118 @@ EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value <= 'wo
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value = 'example'; -- 测试等于操作符
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value >= 'testing'; -- 测试大于等于操作符
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value < 'postgresql'; -- 测试小于操作符
+
 SET enable_seqscan = on;
 
 DROP INDEX mytext_value_brin_idx;
+
+---------------- 验证操作符（GiST 索引） ----------------
+
+CREATE INDEX mytext_value_gist_idx ON test_mytext USING gist (value);
+
+-- 验证 GiST 索引是否使用正确的操作符类
+WITH index_info AS (
+    SELECT idx.relname AS index_name, pg_get_indexdef(idx.oid) AS index_definition,
+        unnest(i.indkey) AS attnum, unnest(i.indclass) AS opclass_oid
+    FROM pg_index i JOIN pg_class idx ON i.indexrelid = idx.oid
+    WHERE i.indrelid = 'test_mytext'::regclass),
+column_info AS (
+    SELECT att.attnum, att.attname AS column_name, format_type(att.atttypid, att.atttypmod) AS data_type, opc.opcname AS default_opclass
+    FROM pg_attribute att
+    JOIN pg_type typ ON att.atttypid = typ.oid
+    LEFT JOIN pg_opclass opc ON opc.opcintype = att.atttypid AND opc.opcdefault AND opc.opcfamily IN (
+        SELECT opf.oid FROM pg_opfamily opf JOIN pg_am am ON opf.opfmethod = am.oid WHERE am.amname = 'gist')
+    WHERE att.attrelid = 'test_mytext'::regclass AND att.attnum > 0)
+SELECT idx.index_name, idx.index_definition, col.column_name, col.data_type, col.default_opclass, opc.opcname AS index_opclass
+FROM index_info idx
+JOIN column_info col ON idx.attnum = col.attnum
+LEFT JOIN pg_opclass opc ON idx.opclass_oid = opc.oid;
+-- 期望输出
+--       index_name       |                              index_definition                               | column_name | data_type | default_opclass |  index_opclass
+-- -----------------------+-----------------------------------------------------------------------------+-------------+-----------+-----------------+-----------------
+--  test_mytext_pkey      | CREATE UNIQUE INDEX test_mytext_pkey ON public.test_mytext USING btree (id) | id          | integer   |                 | int4_ops
+--  mytext_value_gist_idx | CREATE INDEX mytext_value_gist_idx ON public.test_mytext USING gist (value) | value       | mytext    | mytext_gist_ops | mytext_gist_ops
+-- (2 rows)
+
+-- 使用自定义操作符进行查询（GiST 索引）
+SET enable_seqscan = off;
+SELECT * FROM test_mytext WHERE value > 'hello';
+SELECT * FROM test_mytext WHERE value <= 'world';
+SELECT * FROM test_mytext WHERE value = 'example';
+SELECT * FROM test_mytext WHERE value >= 'testing';
+SELECT * FROM test_mytext WHERE value < 'postgresql';
+SELECT * FROM test_mytext WHERE value > 'hello' AND value <= 'world';
+SELECT * FROM test_mytext WHERE value < 'postgresql' OR value >= 'testing';
+
+-- 期望输出的过滤条件为： Index Cond: (test_mytext.value > 'hello'::mytext)
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value > 'hello';
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value <= 'world';
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value = 'example';
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value >= 'testing';
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value < 'postgresql';
+-- 期望输出的过滤条件为：Index Cond: ((test_mytext.value > 'hello'::mytext) AND (test_mytext.value <= 'world'::mytext))
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value > 'hello' AND value <= 'world';
+-- 期望输出的过滤条件为：
+-- Recheck Cond: ((value < 'postgresql'::mytext) OR (value >= 'testing'::mytext))
+-- Bitmap Index Scan
+--   Index Cond: (value < 'postgresql'::mytext)
+-- Bitmap Index Scan
+--   Index Cond: (value >= 'testing'::mytext)
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT * FROM test_mytext WHERE value < 'postgresql' OR value >= 'testing';
+SET enable_seqscan = on;
+
+DROP INDEX mytext_value_gist_idx;
+
+---------------- 验证操作符（GIN 索引） ----------------
+
+CREATE INDEX mytext_value_gin_idx ON test_mytext USING gin (value);
+
+-- 验证 GIN 索引是否使用正确的操作符类
+WITH index_info AS (
+    SELECT idx.relname AS index_name, pg_get_indexdef(idx.oid) AS index_definition,
+        unnest(i.indkey) AS attnum, unnest(i.indclass) AS opclass_oid
+    FROM pg_index i JOIN pg_class idx ON i.indexrelid = idx.oid
+    WHERE i.indrelid = 'test_mytext'::regclass),
+column_info AS (
+    SELECT att.attnum, att.attname AS column_name, format_type(att.atttypid, att.atttypmod) AS data_type, opc.opcname AS default_opclass
+    FROM pg_attribute att
+    JOIN pg_type typ ON att.atttypid = typ.oid
+    LEFT JOIN pg_opclass opc ON opc.opcintype = att.atttypid AND opc.opcdefault AND opc.opcfamily IN (
+        SELECT opf.oid FROM pg_opfamily opf JOIN pg_am am ON opf.opfmethod = am.oid WHERE am.amname = 'gin')
+    WHERE att.attrelid = 'test_mytext'::regclass AND att.attnum > 0)
+SELECT idx.index_name, idx.index_definition, col.column_name, col.data_type, col.default_opclass, opc.opcname AS index_opclass
+FROM index_info idx
+JOIN column_info col ON idx.attnum = col.attnum
+LEFT JOIN pg_opclass opc ON idx.opclass_oid = opc.oid;
+-- 期望输出
+--       index_name      |                              index_definition                               | column_name | data_type | default_opclass | index_opclass
+-- ----------------------+-----------------------------------------------------------------------------+-------------+-----------+-----------------+----------------
+--  test_mytext_pkey     | CREATE UNIQUE INDEX test_mytext_pkey ON public.test_mytext USING btree (id) | id          | integer   |                 | int4_ops
+--  mytext_value_gin_idx | CREATE INDEX mytext_value_gin_idx ON public.test_mytext USING gin (value)   | value       | mytext    | mytext_gin_ops  | mytext_gin_ops
+-- (2 rows)
+
+-- 使用自定义操作符进行查询（GIN 索引）
+SET enable_seqscan = off;
+
+SELECT * FROM test_mytext WHERE value @> 'hell'; -- 包含查询
+SELECT * FROM test_mytext WHERE value == 'hello'; -- 等值查询
+SELECT * FROM test_mytext WHERE value ~~ '%sql%'; -- LIKE操作符
+SELECT * FROM test_mytext WHERE value ~ '^(mysql|world)$'; -- 正则操作符
+SELECT * FROM test_mytext WHERE value ~ '^[a-z]+st[a-z]+$'; -- 正则操作符
+
+-- 期待过滤条件：Index Cond: (value @> 'hell'::mytext)
+EXPLAIN ANALYZE SELECT * FROM test_mytext WHERE value @> 'hell'; -- 包含查询
+-- 期待过滤条件：Index Cond: (value == 'hello'::mytext)
+EXPLAIN ANALYZE SELECT * FROM test_mytext WHERE value == 'hello'; -- 等值查询
+-- 期待过滤条件：Index Cond: (value ~~ '%sql%'::mytext)
+EXPLAIN ANALYZE SELECT * FROM test_mytext WHERE value ~~ '%sql%'; -- LIKE操作符
+EXPLAIN ANALYZE SELECT * FROM test_mytext WHERE value ~ '^(mysql|world)$'; -- 正则操作符
+-- 期待过滤条件：Index Cond: (value ~ '^[a-z]+ [a-z]+$'::text)
+EXPLAIN ANALYZE SELECT * FROM test_mytext WHERE value ~ '^[a-z]+st[a-z]+$'; -- 正则操作符
+
+SET enable_seqscan = on;
+
+DROP INDEX mytext_value_gin_idx;
 
 ---------------- 清理数据 ----------------
 DROP TABLE test_mytext;
