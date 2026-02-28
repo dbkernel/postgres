@@ -1,0 +1,3 @@
+[submodule "contrib/timescaledb"]
+	path = contrib/timescaledb
+	url = https://github.com/timescale/timescaledb.git
