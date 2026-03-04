@@ -4,3 +4,6 @@
 [submodule "contrib/pg_dirtyread"]
 	path = contrib/pg_dirtyread
 	url = https://github.com/df7cb/pg_dirtyread.git
+[submodule "contrib/temporal_tables"]
+	path = contrib/temporal_tables
+	url = https://github.com/arkhipov/temporal_tables.git
