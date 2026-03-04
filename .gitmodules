@@ -1,3 +1,6 @@
 [submodule "contrib/timescaledb"]
 	path = contrib/timescaledb
 	url = https://github.com/timescale/timescaledb.git
+[submodule "contrib/pg_dirtyread"]
+	path = contrib/pg_dirtyread
+	url = https://github.com/df7cb/pg_dirtyread.git
