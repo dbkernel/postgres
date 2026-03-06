@@ -7,3 +7,6 @@
 [submodule "contrib/temporal_tables"]
 	path = contrib/temporal_tables
 	url = https://github.com/arkhipov/temporal_tables.git
+[submodule "contrib/timescaledb-toolkit"]
+	path = contrib/timescaledb-toolkit
+	url = https://github.com/timescale/timescaledb-toolkit.git
