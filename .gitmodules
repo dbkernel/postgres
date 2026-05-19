@@ -10,3 +10,6 @@
 [submodule "contrib/timescaledb-toolkit"]
 	path = contrib/timescaledb-toolkit
 	url = https://github.com/timescale/timescaledb-toolkit.git
+[submodule "contrib/orioledb"]
+	path = contrib/orioledb
+	url = https://github.com/orioledb/orioledb.git
