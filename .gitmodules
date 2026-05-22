@@ -13,3 +13,6 @@
 [submodule "contrib/orioledb"]
 	path = contrib/orioledb
 	url = https://github.com/orioledb/orioledb.git
+[submodule "contrib/walminer"]
+	path = contrib/walminer
+	url = https://gitee.com/movead/XLogMiner.git
