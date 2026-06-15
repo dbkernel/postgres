@@ -16,3 +16,6 @@
 [submodule "contrib/walminer"]
 	path = contrib/walminer
 	url = https://gitee.com/movead/XLogMiner.git
+[submodule "contrib/ora2pg"]
+	path = contrib/ora2pg
+	url = https://github.com/darold/ora2pg
