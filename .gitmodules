@@ -19,3 +19,6 @@
 [submodule "contrib/ora2pg"]
 	path = contrib/ora2pg
 	url = https://github.com/darold/ora2pg
+[submodule "contrib/pgaudit"]
+	path = contrib/pgaudit
+	url = https://github.com/pgaudit/pgaudit.git
