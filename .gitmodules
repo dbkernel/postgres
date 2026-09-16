@@ -22,3 +22,6 @@
 [submodule "contrib/pgaudit"]
 	path = contrib/pgaudit
 	url = https://github.com/pgaudit/pgaudit.git
+[submodule "contrib/age"]
+	path = contrib/age
+	url = https://github.com/apache/age.git
