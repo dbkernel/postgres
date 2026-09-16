@@ -28,3 +28,6 @@
 [submodule "contrib/ptrack"]
 	path = contrib/ptrack
 	url = https://github.com/postgrespro/ptrack.git
+[submodule "contrib/pg_probackup"]
+	path = contrib/pg_probackup
+	url = https://github.com/postgrespro/pg_probackup.git
