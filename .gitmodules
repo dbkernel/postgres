@@ -25,3 +25,6 @@
 [submodule "contrib/age"]
 	path = contrib/age
 	url = https://github.com/apache/age.git
+[submodule "contrib/ptrack"]
+	path = contrib/ptrack
+	url = https://github.com/postgrespro/ptrack.git
