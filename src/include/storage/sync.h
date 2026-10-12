@@ -55,6 +55,9 @@ typedef struct FileTag
 	uint32		segno;
 } FileTag;
 
+typedef void (*ProcessSyncRequests_hook_type) (void);
+extern PGDLLIMPORT ProcessSyncRequests_hook_type ProcessSyncRequests_hook;
+
 extern void InitSync(void);
 extern void SyncPreCheckpoint(void);
 extern void SyncPostCheckpoint(void);

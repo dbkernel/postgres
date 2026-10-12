@@ -80,6 +80,11 @@ static Latch LocalLatchData;
 
 bool		IgnoreSystemIndexes = false;
 
+/* ----------------------------------------------------------------
+ *				Ptrack functions support
+ * ----------------------------------------------------------------
+ */
+static void check_use_ptrack(const char *libraries);
 
 /* ----------------------------------------------------------------
  *	common process startup code
@@ -1740,6 +1745,8 @@ process_shared_preload_libraries(void)
 				   false);
 	process_shared_preload_libraries_in_progress = false;
 	process_shared_preload_libraries_done = true;
+
+	check_use_ptrack(shared_preload_libraries_string);
 }
 
 /*
@@ -1782,3 +1789,71 @@ pg_bindtextdomain(const char *domain)
 	}
 #endif
 }
+
+/*-------------------------------------------------------------------------
+ *				Ptrack functions support
+ *-------------------------------------------------------------------------
+ */
+
+/* Persistent copy of ptrack.map to restore after crash */
+#define PTRACK_PATH "global/ptrack.map"
+/* Used for atomical crash-safe update of ptrack.map */
+#define PTRACK_PATH_TMP "global/ptrack.map.tmp"
+
+/*
+ * Check that path is accessible by us and return true if it is
+ * not a directory.
+ */
+static bool
+ptrack_file_exists(const char *path)
+{
+	struct stat st;
+
+	Assert(path != NULL);
+
+	if (stat(path, &st) == 0)
+		return S_ISDIR(st.st_mode) ? false : true;
+	else if (!(errno == ENOENT || errno == ENOTDIR || errno == EACCES))
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not access file \"%s\": %m", path)));
+
+	return false;
+}
+
+/*
+ * Delete ptrack files when ptrack is disabled.
+ *
+ * This is performed by postmaster at start,
+ * so that there are no concurrent delete issues.
+ */
+static void
+ptrackCleanFiles(void)
+{
+	char		ptrack_path[MAXPGPATH];
+	char		ptrack_path_tmp[MAXPGPATH];
+
+	sprintf(ptrack_path, "%s/%s", DataDir, PTRACK_PATH);
+	sprintf(ptrack_path_tmp, "%s/%s", DataDir, PTRACK_PATH_TMP);
+
+	elog(DEBUG1, "ptrack: clean map files");
+
+	if (ptrack_file_exists(ptrack_path_tmp))
+		durable_unlink(ptrack_path_tmp, LOG);
+
+	if (ptrack_file_exists(ptrack_path))
+		durable_unlink(ptrack_path, LOG);
+}
+
+static void
+check_use_ptrack(const char *libraries)
+{
+	/* We need to delete the ptrack.map file when ptrack was turned off */
+	if (strstr(shared_preload_libraries_string, "ptrack") == NULL)
+	{
+		ptrackCleanFiles();
+	}
+}
+
+#undef PTRACK_PATH
+#undef PTRACK_PATH_TMP

@@ -118,6 +118,11 @@ static const struct exclude_list_item skip[] = {
 	{"pg_filenode.map", false},
 	{"pg_internal.init", true},
 	{"PG_VERSION", false},
+
+	{"ptrack.map.mmap", false},
+	{"ptrack.map", false},
+	{"ptrack.map.tmp", false},
+
 #ifdef EXEC_BACKEND
 	{"config_exec_params", true},
 #endif

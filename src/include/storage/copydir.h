@@ -13,6 +13,9 @@
 #ifndef COPYDIR_H
 #define COPYDIR_H
 
+typedef void (*copydir_hook_type) (const char *path);
+extern PGDLLIMPORT copydir_hook_type copydir_hook;
+
 extern void copydir(char *fromdir, char *todir, bool recurse);
 extern void copy_file(char *fromfile, char *tofile);
 

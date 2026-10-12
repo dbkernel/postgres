@@ -85,6 +85,7 @@ static void RewriteControlFile(void);
 static void FindEndOfXLOG(void);
 static void KillExistingXLOG(void);
 static void KillExistingArchiveStatus(void);
+static void KillExistingPtrack(void);
 static void WriteEmptyXLOG(void);
 static void usage(void);
 
@@ -488,6 +489,7 @@ main(int argc, char *argv[])
 	RewriteControlFile();
 	KillExistingXLOG();
 	KillExistingArchiveStatus();
+	KillExistingPtrack();
 	WriteEmptyXLOG();
 
 	printf(_("Write-ahead log reset\n"));
@@ -1034,6 +1036,41 @@ KillExistingArchiveStatus(void)
 
 	if (closedir(xldir))
 		pg_fatal("could not close directory \"%s\": %m", ARCHSTATDIR);
+}
+
+/*
+ * Remove existing ptrack files
+ */
+static void
+KillExistingPtrack(void)
+{
+#define PTRACKDIR "global"
+
+	DIR            *xldir;
+	struct dirent  *xlde;
+	char            path[MAXPGPATH + sizeof(PTRACKDIR)];
+
+	xldir = opendir(PTRACKDIR);
+	if (xldir == NULL)
+		pg_fatal("could not open directory \"%s\": %m", PTRACKDIR);
+
+	while (errno = 0, (xlde = readdir(xldir)) != NULL)
+	{
+		if (strcmp(xlde->d_name, "ptrack.map.mmap") == 0 ||
+			strcmp(xlde->d_name, "ptrack.map") == 0 ||
+			strcmp(xlde->d_name, "ptrack.map.tmp") == 0)
+		{
+			snprintf(path, sizeof(path), "%s/%s", PTRACKDIR, xlde->d_name);
+			if (unlink(path) < 0)
+				pg_fatal("could not delete file \"%s\": %m", path);
+		}
+	}
+
+	if (errno)
+		pg_fatal("could not read directory \"%s\": %m", PTRACKDIR);
+
+	if (closedir(xldir))
+		pg_fatal("could not close directory \"%s\": %m", PTRACKDIR);
 }
 
 

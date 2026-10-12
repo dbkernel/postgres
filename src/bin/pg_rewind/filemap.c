@@ -186,6 +186,10 @@ static const struct exclude_list_item excludeFiles[] =
 	{"postmaster.pid", false},
 	{"postmaster.opts", false},
 
+	{"ptrack.map.mmap", false},
+	{"ptrack.map", false},
+	{"ptrack.map.tmp", false},
+
 	/* end of list */
 	{NULL, false}
 };

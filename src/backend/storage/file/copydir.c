@@ -27,6 +27,8 @@
 #include "storage/copydir.h"
 #include "storage/fd.h"
 
+copydir_hook_type copydir_hook = NULL;
+
 /*
  * copydir: copy a directory
  *
@@ -77,6 +79,9 @@ copydir(char *fromdir, char *todir, bool recurse)
 			copy_file(fromfile, tofile);
 	}
 	FreeDir(xldir);
+
+	if (copydir_hook)
+		copydir_hook(todir);
 
 	/*
 	 * Be paranoid here and fsync all files to ensure the copy is really done.

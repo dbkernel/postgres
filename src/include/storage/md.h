@@ -19,6 +19,13 @@
 #include "storage/smgr.h"
 #include "storage/sync.h"
 
+typedef void (*mdextend_hook_type) (RelFileNodeBackend smgr_rnode,
+									ForkNumber forknum, BlockNumber blocknum);
+extern PGDLLIMPORT mdextend_hook_type mdextend_hook;
+typedef void (*mdwrite_hook_type) (RelFileNodeBackend smgr_rnode,
+									ForkNumber forknum, BlockNumber blocknum);
+extern PGDLLIMPORT mdwrite_hook_type mdwrite_hook;
+
 /* md storage manager functionality */
 extern void mdinit(void);
 extern void mdopen(SMgrRelation reln);

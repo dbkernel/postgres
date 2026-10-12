@@ -81,6 +81,8 @@ static MemoryContext pendingOpsCxt; /* context for the above  */
 static CycleCtr sync_cycle_ctr = 0;
 static CycleCtr checkpoint_cycle_ctr = 0;
 
+ProcessSyncRequests_hook_type ProcessSyncRequests_hook = NULL;
+
 /* Intervals for calling AbsorbSyncRequests */
 #define FSYNCS_PER_ABSORB		10
 #define UNLINKS_PER_ABSORB		10
@@ -476,6 +478,9 @@ ProcessSyncRequests(void)
 	CheckpointStats.ckpt_sync_rels = processed;
 	CheckpointStats.ckpt_longest_sync = longest;
 	CheckpointStats.ckpt_agg_sync_time = total_elapsed;
+
+	if (ProcessSyncRequests_hook)
+		ProcessSyncRequests_hook();
 
 	/* Flag successful completion of ProcessSyncRequests */
 	sync_in_progress = false;

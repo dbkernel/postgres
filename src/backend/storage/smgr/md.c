@@ -87,6 +87,8 @@ typedef struct _MdfdVec
 
 static MemoryContext MdCxt;		/* context for all MdfdVec objects */
 
+mdextend_hook_type mdextend_hook = NULL;
+mdwrite_hook_type mdwrite_hook = NULL;
 
 /* Populate a file tag describing an md.c segment file. */
 #define INIT_MD_FILETAG(a,xx_rnode,xx_forknum,xx_segno) \
@@ -501,6 +503,9 @@ mdextend(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 		register_dirty_segment(reln, forknum, v);
 
 	Assert(_mdnblocks(reln, forknum, v) <= ((BlockNumber) RELSEG_SIZE));
+
+	if (mdextend_hook)
+		mdextend_hook(reln->smgr_rnode, forknum, blocknum);
 }
 
 /*
@@ -790,6 +795,9 @@ mdwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 
 	if (!skipFsync && !SmgrIsTemp(reln))
 		register_dirty_segment(reln, forknum, v);
+
+	if (mdwrite_hook)
+		mdwrite_hook(reln->smgr_rnode, forknum, blocknum);
 }
 
 /*

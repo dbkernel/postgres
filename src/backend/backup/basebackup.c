@@ -197,6 +197,13 @@ static const struct exclude_list_item excludeFiles[] =
 	{"postmaster.pid", false},
 	{"postmaster.opts", false},
 
+	/*
+	 * Skip all transient ptrack files, but do copy ptrack.map, since it may
+	 * be successfully used immediately after backup. TODO: check, test?
+	 */
+	{"ptrack.map.mmap", false},
+	{"ptrack.map.tmp", false},
+
 	/* end of list */
 	{NULL, false}
 };
@@ -212,6 +219,11 @@ static const struct exclude_list_item noChecksumFiles[] = {
 	{"pg_filenode.map", false},
 	{"pg_internal.init", true},
 	{"PG_VERSION", false},
+
+	{"ptrack.map.mmap", false},
+	{"ptrack.map", false},
+	{"ptrack.map.tmp", false},
+
 #ifdef EXEC_BACKEND
 	{"config_exec_params", true},
 #endif
