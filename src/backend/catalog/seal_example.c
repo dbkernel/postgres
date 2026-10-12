@@ -15,7 +15,11 @@
 #include "access/heapam.h"
 
 #include "catalog/catalog.h"
+#include "catalog/indexing.h"
+#ifdef SEALDB_V1
 #include "catalog/seal_example.h"
+#endif
+#include "funcapi.h"
 #include "nodes/execnodes.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -29,8 +33,10 @@
  * 2. 本文中函数示例只实现了增删改查一条元组。
  */
 
-void CacheLookupSealExampleTuple(int32 number, Form_seal_example **form_ptr,
-                                 HeapTuple **tuple_ptr, bool release_tuple);
+#ifdef SEALDB_V1
+
+void CacheLookupSealExampleTuple(int32 number, Form_seal_example *form_ptr,
+                                 HeapTuple *tuple_ptr, bool release_tuple);
 
 /*
  * 向seal_example表中插入一条记录，
@@ -38,6 +44,7 @@ void CacheLookupSealExampleTuple(int32 number, Form_seal_example **form_ptr,
  */
 void InsertSealExampleTuple(int32 number, char *tname) {
     Relation rel;
+    HeapTuple tuple;
     bool nulls[Natts_seal_example] = {0};
     Datum values[Natts_seal_example];
     int i = 0;
@@ -47,14 +54,14 @@ void InsertSealExampleTuple(int32 number, char *tname) {
     values[i++] = CStringGetTextDatum(tname);
 
     rel = table_open(SealExampleRelationId, RowExclusiveLock);
-    HeapTuple tuple = heap_form_tuple(rel->rd_att, values, nulls);
+    tuple = heap_form_tuple(rel->rd_att, values, nulls);
 
     // 该函数内部会查找Buffer读取及可见性处理，也会标记缓存失效，调用关系为：
     // CatalogTupleInsert --> heap_insert --> CacheInvalidateHeapTuple(relation, heaptup, NULL);
     CatalogTupleInsert(rel, tuple);
 
-    elog(INFO, "[%s] insert one tuple[oid = %d, number = %d, tname = %s] in seal_example [%d] success",
-         __func__, values[0], number, tname, SealExampleRelationId);
+    elog(INFO, "[%s] insert one tuple[oid = %u, number = %d, tname = %s] in seal_example [%d] success",
+         __func__, DatumGetObjectId(values[0]), number, tname, SealExampleRelationId);
 
 #ifdef CACHE_INVALID // 无需主动调用，仅记录
 #ifdef CACHE_INVALID_RELATION
@@ -78,6 +85,7 @@ void UpdateSealExampleTupleByTableScan(int32 number, int32 new_number) {
     HeapTuple tuple, new_tuple;
     SysScanDesc scan;
     ScanKeyData key[1];
+    Form_seal_example form;
 
     rel = table_open(SealExampleRelationId, RowExclusiveLock);
 
@@ -90,7 +98,7 @@ void UpdateSealExampleTupleByTableScan(int32 number, int32 new_number) {
     while (HeapTupleIsValid((tuple = systable_getnext(scan)))) {
         // 拷贝新 tuple，修改其值，然后更新
         new_tuple = heap_copytuple(tuple); // 原 tuple 无需 free
-        Form_seal_example form = (Form_seal_example)GETSTRUCT(new_tuple);
+        form = (Form_seal_example) GETSTRUCT(new_tuple);
         form->number = new_number;
 
         // 该函数内部会查找 Buffer 读取及可见性判断，也会标记缓存失效，调用关系为：
@@ -170,15 +178,17 @@ void DeleteSealExampleTupleByTableScan(int32 number) {
  * 若需更新多条记录，请使用或借鉴UpdateSealExampleTupleByTableScan函数。
  */
 void UpdateSealExampleTupleByCacheLookup(int32 number, int32 new_number) {
+    Relation rel;
     HeapTuple tuple = NULL;
     Form_seal_example form = NULL;
+
     CacheLookupSealExampleTuple(number, &form, &tuple, false);
     if (!form) { // 缓存未命中，且表中不存在该记录
         elog(ERROR, "[%s] cache lookup seal_example by number [%d] failed, not found", __func__, number);
         return;
     }
 
-    Relation rel = table_open(SealExampleRelationId, RowExclusiveLock);
+    rel = table_open(SealExampleRelationId, RowExclusiveLock);
     if (HeapTupleIsValid(tuple)) {
         // 拷贝新 tuple，修改其值，然后更新
         HeapTuple new_tuple = heap_copytuple(tuple); // 原 tuple 无需 free
@@ -216,15 +226,17 @@ void UpdateSealExampleTupleByCacheLookup(int32 number, int32 new_number) {
  * 若需删除多条记录，请使用或借鉴DeleteSealExampleTupleByTableScan函数。
  */
 void DeleteSealExampleTupleByCacheLookup(int32 number) {
+    Relation rel;
     HeapTuple tuple = NULL;
     Form_seal_example form = NULL;
+
     CacheLookupSealExampleTuple(number, &form, &tuple, false);
     if (!form) { // 缓存未命中，且表中不存在该记录
         elog(ERROR, "[%s] cache lookup seal_example by number [%d] failed, not found", __func__, number);
         return;
     }
 
-    Relation rel = table_open(SealExampleRelationId, RowExclusiveLock);
+    rel = table_open(SealExampleRelationId, RowExclusiveLock);
     if (HeapTupleIsValid(tuple)) {
         // 该函数内部会查找 Buffer 读取及可见性判断，也会标记缓存失效，调用关系为：
         // CatalogTupleDelete --> simple_heap_delete --> heap_delete --> CacheInvalidateHeapTuple(relation, &tp, NULL);
@@ -250,8 +262,8 @@ void DeleteSealExampleTupleByCacheLookup(int32 number) {
     table_close(rel, RowExclusiveLock);
 }
 
-void CacheLookupSealExampleTuple(int32 number, Form_seal_example **form_ptr,
-                                 HeapTuple **tuple_ptr, bool release_tuple) {
+void CacheLookupSealExampleTuple(int32 number, Form_seal_example *form_ptr,
+                                 HeapTuple *tuple_ptr, bool release_tuple) {
     if (RelationHasSysCache(SealExampleRelationId)) { // 当前系统表是否位于缓存中
         // SearchSysCache1 函数中，如果缓存未命中，会调用 SearchCatCacheMiss 函数扫描磁盘中的表数据，
         // 其中，会调用 CatalogCacheCreateEntry 函数将新读取的数据缓存到内存中。
@@ -281,14 +293,13 @@ void CacheLookupSealExampleTuple(int32 number, Form_seal_example **form_ptr,
 Form_seal_example SearchSealExampleTuple(int32 number) {
     HeapTuple tuple = NULL;
     Form_seal_example form = NULL;
+    Relation rel;
+    SysScanDesc scan;
+    ScanKeyData key[1];
 
     CacheLookupSealExampleTuple(number, &form, &tuple, true);
     if (form)
         return form;
-
-    Relation rel;
-    SysScanDesc scan;
-    ScanKeyData key[1];
 
     rel = table_open(SealExampleRelationId, RowShareLock);
 
@@ -309,35 +320,38 @@ Form_seal_example SearchSealExampleTuple(int32 number) {
     return form;
 }
 
+#endif							/* SEALDB_V1 */
+
 /*
 pg_proc.dat 文件中需要添加如下内容：
 # seal_example test
-{ oid => '8130', descr => 'he3 example test',
+{ oid => '8130', descr => 'seal example test',
   proname => 'seal_example_test', prorows => '1', proretset => 't',
   provolatile => 'v', prorettype => 'record', proargtypes => '',
   proallargtypes => '{int8,int8}', proargmodes => '{o,o}',
   proargnames => '{case_num_current,case_num_next}',
   prosrc => 'seal_example_test' },
 
-当宏 SEALDB_V1 未启用时，seal_example.c不会被编译，那么，为了避免导致 pg_proc.dat
-中的 he3_example_test 函数无效的问题，可将本函数定义放置在其他文件中。
+注意：pg_proc.dat 中的 seal_example_test 条目是无条件的，且 Gen_fmgrtab.pl 会为其生成
+对 C 符号 seal_example_test 的硬引用（fmgrtab.c）。因此无论是否启用 SEALDB_V1，
+本函数都必须被编译，否则链接失败。当 SEALDB_V1 未启用时，系统表 seal_example、
+其 SysCache 以及本函数中的增删改查调用均不参与编译，本函数仅返回计数值。
  */
 Datum
 seal_example_test(PG_FUNCTION_ARGS)
 {
 	ReturnSetInfo *rsinfo = (ReturnSetInfo *)fcinfo->resultinfo;
 	Datum values[2];
-	bool nulls[2];
+	bool nulls[2] = {false, false};
+    static int case_num = 0, case_max = 5;
 
 	InitMaterializedSRF(fcinfo, 0);
 
-    static int case_num = 0, case_max = 5;
-
-    values[0] = Int16GetDatum(case_num);
+    values[0] = Int64GetDatum(case_num);
 	values[1] = Int64GetDatum((case_num == case_max) ? 0 : case_num + 1);
 
 	tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc, values, nulls);
-// #ifdef SEALDB_V1
+#ifdef SEALDB_V1
     switch (case_num) {
         case 0:
             InsertSealExampleTuple(100, "Wang");
@@ -379,7 +393,7 @@ seal_example_test(PG_FUNCTION_ARGS)
         default:
             break;
     }
-// #endif
+#endif
 
 	return (Datum)0;
 }

@@ -869,6 +869,9 @@
    RELSEG_SIZE requires an initdb. */
 #undef RELSEG_SIZE
 
+/* Define to 1 to build with sealdb-v1 support. (--enable-sealdb-v1) */
+#undef SEALDB_V1
+
 /* The size of `bool', as computed by sizeof. */
 #undef SIZEOF_BOOL
 

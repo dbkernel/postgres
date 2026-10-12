@@ -75,7 +75,9 @@
 #include "catalog/pg_ts_template.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_user_mapping.h"
+#ifdef SEALDB_V1
 #include "catalog/seal_example.h"
+#endif
 #include "lib/qunique.h"
 #include "miscadmin.h"
 #include "storage/lmgr.h"
@@ -778,7 +780,7 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		8
 	},
-// #ifdef SEALDB_V1
+#ifdef SEALDB_V1
 	{SealExampleRelationId,		/* SEALEXAMPLEOID */
 		SealExampleNumberIndexId,
 		1,
@@ -790,7 +792,7 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		16
 	},
-// #endif
+#endif
 	{SequenceRelationId,		/* SEQRELID */
 		SequenceRelidIndexId,
 		1,
